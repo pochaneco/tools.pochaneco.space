@@ -135,7 +135,12 @@ return [
         ],
 
         'sakura' => [
-            'driver' => 'openai',
+            // Use the openrouter driver because さくらのAI Engine exposes the
+            // OpenAI *Chat Completions* API (`/chat/completions`), not the
+            // newer Responses API (`/responses`) that the `openai` driver
+            // targets in laravel/ai. The openrouter driver is OpenAI-compatible
+            // and hits `chat/completions` with Bearer auth, matching Sakura.
+            'driver' => 'openrouter',
             'key' => env('SAKURA_AI_API_KEY'),
             'url' => env('SAKURA_AI_BASE_URL', 'https://api.ai.sakura.ad.jp/v1'),
         ],
