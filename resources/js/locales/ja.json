@@ -30,6 +30,19 @@
             "already_have_account": "既にアカウントをお持ちですか？",
             "login": "ログイン"
         },
+        "team_invitation": {
+            "title": "チーム招待 - アカウント作成",
+            "heading": "チームへの招待",
+            "inviter_message": "{inviter} さんがあなたを {team} チームに招待しています",
+            "description": "このチームに参加するには、アカウントを作成してください",
+            "name": "お名前",
+            "email": "メールアドレス",
+            "password": "パスワード",
+            "password_confirmation": "パスワード確認",
+            "submit": "アカウント作成してチームに参加",
+            "already_have_account": "既にアカウントをお持ちですか？",
+            "login": "ログイン"
+        },
         "forgot_password": {
             "title": "パスワードをお忘れですか？",
             "description": "メールアドレスを入力いただければ、パスワードリセット用のリンクをお送りします",
