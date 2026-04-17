@@ -1,29 +1,11 @@
 # GitHub Copilot Instructions
 
-## Project-Specific Guidelines
+## 言語設定
+- **応答言語**: 日本語
 
-このプロジェクトの詳細なガイドラインは以下を参照:
-- **AGENT.md** - AI Agent向け開発ガイド
-- **docs/** - 詳細なドキュメント
+## ガイドライン
 
-### 重要な制約
-
-1. **Inertia.jsアーキテクチャ必須**
-   - ❌ Bladeテンプレート、JSON APIエンドポイント
-   - ✅ `Inertia::render()` でPropsを渡す
-
-2. **RBAC必須**
-   - ロール階層: `admin` > `moderator` > `vip` > `user` > `monitor` > `guest`
-   - 詳細: `docs/ROLE_MANAGEMENT.md`
-
-3. **マイグレーション**
-   - 必ずArtisanコマンドを使用
-   - 手動SQL実行禁止
-
-4. **Sailコマンド使用**
-   - すべてのPHP/NPMコマンドは `./vendor/bin/sail` 経由
-
-詳細: `AGENT.md` および `docs/README.md`
+詳細は [AGENTS.md](../AGENTS.md) を参照
 
 ---
 
