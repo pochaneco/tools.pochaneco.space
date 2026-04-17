@@ -4,10 +4,6 @@ use App\Enums\MessageRole;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use Tests\TestCase;
-
-uses(TestCase::class, RefreshDatabase::class);
 
 describe('Conversation model', function () {
     it('belongs to a user', function () {
