@@ -32,21 +32,27 @@ type StreamDeltaEvent = {
 };
 
 type StreamDoneEvent = {
-    type?: 'done';
-    [key: string]: unknown;
+    type: 'done';
+    conversation_id?: number | string;
+    message_id?: number | string;
 };
 
-type StreamEvent = StreamDeltaEvent | StreamDoneEvent;
+type StreamErrorEvent = {
+    type: 'error';
+    message?: string;
+};
+
+type StreamEvent = StreamDeltaEvent | StreamDoneEvent | StreamErrorEvent;
 
 type ChatState = {
     messages: Message[];
     input: string;
     streaming: boolean;
     error: string | null;
-    conversationId: string | null;
+    conversationId: number | string | null;
 };
 
-const CHAT_MESSAGE_ENDPOINT = '/chat/message';
+const CHAT_MESSAGE_ENDPOINT = chatRoutes.message.url();
 
 const state = reactive<ChatState>({
     messages: [],
@@ -186,7 +192,16 @@ function handleSseEvent(assistantId: string, evt: ParsedSseEvent): boolean {
         return false;
     }
 
+    if (payload.type === 'error') {
+        state.error = (payload as StreamErrorEvent).message ?? t('chat.connection_error');
+        return true;
+    }
+
     if (payload.type === 'done') {
+        const done = payload as StreamDoneEvent;
+        if (done.conversation_id !== undefined) {
+            state.conversationId = done.conversation_id;
+        }
         return true;
     }
 
