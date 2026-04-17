@@ -71,12 +71,6 @@ interface Permissions {
   can_remove_member: boolean;
 }
 
-interface AvailableUser {
-  id: number;
-  name: string;
-  email: string;
-}
-
 const props = defineProps<{
   team: Team;
   permissions: Permissions;
