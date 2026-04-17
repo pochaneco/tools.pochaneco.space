@@ -5,6 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import InputError from '@/components/InputError.vue';
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 
 interface Props {
     token: string;
@@ -32,14 +35,17 @@ const submit = () => {
 </script>
 
 <template>
-    <Head title="チーム招待 - アカウント作成" />
+    <Head :title="t('auth.team_invitation.title')" />
 
     <div class="min-h-screen flex items-center justify-center bg-background p-4">
         <Card class="w-full max-w-md">
             <CardHeader>
-                <CardTitle class="text-2xl">チームへの招待</CardTitle>
+                <CardTitle class="text-2xl">{{ t('auth.team_invitation.heading') }}</CardTitle>
                 <CardDescription>
-                    {{ inviter.name }} さんがあなたを <strong>{{ team.name }}</strong> チームに招待しています
+                    <i18n-t keypath="auth.team_invitation.inviter_message" tag="span">
+                        <template #inviter>{{ inviter.name }}</template>
+                        <template #team><strong>{{ team.name }}</strong></template>
+                    </i18n-t>
                 </CardDescription>
             </CardHeader>
 
@@ -50,13 +56,13 @@ const submit = () => {
 
                 <div class="space-y-2">
                     <p class="text-sm text-muted-foreground">
-                        このチームに参加するには、アカウントを作成してください
+                        {{ t('auth.team_invitation.description') }}
                     </p>
                 </div>
 
                 <form @submit.prevent="submit" class="space-y-4">
                     <div class="grid gap-2">
-                        <Label for="email">メールアドレス</Label>
+                        <Label for="email">{{ t('auth.team_invitation.email') }}</Label>
                         <Input
                             id="email"
                             type="email"
@@ -67,7 +73,7 @@ const submit = () => {
                     </div>
 
                     <div class="grid gap-2">
-                        <Label for="name">お名前</Label>
+                        <Label for="name">{{ t('auth.team_invitation.name') }}</Label>
                         <Input
                             id="name"
                             v-model="form.name"
@@ -79,7 +85,7 @@ const submit = () => {
                     </div>
 
                     <div class="grid gap-2">
-                        <Label for="password">パスワード</Label>
+                        <Label for="password">{{ t('auth.team_invitation.password') }}</Label>
                         <Input
                             id="password"
                             v-model="form.password"
@@ -90,7 +96,7 @@ const submit = () => {
                     </div>
 
                     <div class="grid gap-2">
-                        <Label for="password_confirmation">パスワード確認</Label>
+                        <Label for="password_confirmation">{{ t('auth.team_invitation.password_confirmation') }}</Label>
                         <Input
                             id="password_confirmation"
                             v-model="form.password_confirmation"
@@ -104,14 +110,14 @@ const submit = () => {
                         class="w-full"
                         :disabled="form.processing"
                     >
-                        アカウント作成してチームに参加
+                        {{ t('auth.team_invitation.submit') }}
                     </Button>
                 </form>
 
                 <div class="text-center text-sm text-muted-foreground">
-                    既にアカウントをお持ちですか？
+                    {{ t('auth.team_invitation.already_have_account') }}
                     <a href="/login" class="underline hover:text-foreground">
-                        ログイン
+                        {{ t('auth.team_invitation.login') }}
                     </a>
                 </div>
             </CardContent>
