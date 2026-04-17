@@ -24,7 +24,7 @@ Route::post('teams/invitations/{token}/register', [\App\Http\Controllers\TeamInv
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/chat', [ChatController::class, 'index'])->name('chat.index');
-    Route::get('/chat/stream', [ChatController::class, 'stream'])->name('chat.stream');
+    Route::post('/chat/message', [ChatController::class, 'message'])->name('chat.message');
 
     // Team management
     Route::resource('teams', \App\Http\Controllers\TeamController::class);
