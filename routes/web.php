@@ -25,6 +25,14 @@ Route::post('teams/invitations/{token}/register', [\App\Http\Controllers\TeamInv
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/chat', [ChatController::class, 'index'])->name('chat.index');
     Route::post('/chat/message', [ChatController::class, 'message'])->name('chat.message');
+    Route::get('/chat/conversations', [ChatController::class, 'conversations'])
+        ->name('chat.conversations.index');
+    Route::get('/chat/conversations/{conversation}', [ChatController::class, 'conversation'])
+        ->name('chat.conversations.show');
+    Route::patch('/chat/conversations/{conversation}', [ChatController::class, 'renameConversation'])
+        ->name('chat.conversations.update');
+    Route::delete('/chat/conversations/{conversation}', [ChatController::class, 'destroyConversation'])
+        ->name('chat.conversations.destroy');
 
     // Team management
     Route::resource('teams', \App\Http\Controllers\TeamController::class);
