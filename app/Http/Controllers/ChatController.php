@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Ai\HistoryTruncator;
 use App\Enums\MessageRole;
 use App\Jobs\GenerateConversationTitle;
 use App\Models\Conversation;
@@ -15,8 +16,6 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Laravel\Ai\AnonymousAgent;
-use Laravel\Ai\Messages\AssistantMessage;
-use Laravel\Ai\Messages\UserMessage;
 use Laravel\Ai\Streaming\Events\StreamEnd;
 use Laravel\Ai\Streaming\Events\TextDelta;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -173,11 +172,9 @@ class ChatController extends Controller
         // Capture the pre-existing history *before* persisting the new user
         // message so the SDK call receives just the prior turns as context
         // and the fresh prompt is appended by the agent itself.
-        $history = $conversation->messages()
+        $historyModels = $conversation->messages()
             ->orderBy('created_at')
-            ->get()
-            ->map(fn (Message $m) => $this->toSdkMessage($m))
-            ->all();
+            ->get();
 
         Message::create([
             'conversation_id' => $conversation->id,
@@ -188,7 +185,7 @@ class ChatController extends Controller
         return $this->streamAgentResponse(
             conversation: $conversation,
             prompt: $validated['message'],
-            history: $history,
+            history: $historyModels,
             model: $model,
             allowTitleDispatch: true,
         );
@@ -232,12 +229,10 @@ class ChatController extends Controller
         // History = every remaining message *except* the last user message,
         // which we pass as the prompt. The SDK appends the prompt to the
         // context, so including it in history would duplicate the turn.
-        $history = $conversation->messages()
+        $historyModels = $conversation->messages()
             ->where('id', '!=', $lastUser->id)
             ->orderBy('created_at')
-            ->get()
-            ->map(fn (Message $m) => $this->toSdkMessage($m))
-            ->all();
+            ->get();
 
         // Per-turn override wins; otherwise fall back to the conversation's
         // default model, and finally the app-wide default. Regeneration must
@@ -251,7 +246,7 @@ class ChatController extends Controller
         return $this->streamAgentResponse(
             conversation: $conversation,
             prompt: $lastUser->content,
-            history: $history,
+            history: $historyModels,
             model: $model,
             allowTitleDispatch: false,
         );
@@ -262,25 +257,47 @@ class ChatController extends Controller
      * endpoints. Persists the final assistant reply on StreamEnd and
      * optionally dispatches the title-generation job.
      *
-     * @param  array<int, \Laravel\Ai\Messages\Message>  $history
+     * @param  iterable<Message>  $history  Persisted chat history (newest not yet included).
      */
     private function streamAgentResponse(
         Conversation $conversation,
         string $prompt,
-        array $history,
+        iterable $history,
         string $model,
         bool $allowTitleDispatch,
     ): StreamedResponse {
+        // Trim the history to what fits inside the model's context window
+        // before handing it to the SDK. The prompt itself is sent below
+        // via `$agent->stream($prompt, ...)`, so we only budget for prior
+        // turns here. When truncation happens we surface it to the
+        // browser via a dedicated SSE event so the UI can warn the user.
+        $truncator = app(HistoryTruncator::class);
+        $truncation = $truncator->truncate(
+            messages: $history,
+            model: $model,
+            systemPrompt: self::SYSTEM_INSTRUCTIONS,
+        );
+
         $agent = new AnonymousAgent(
             instructions: self::SYSTEM_INSTRUCTIONS,
-            messages: $history,
+            messages: $truncation->keptMessages,
             tools: [],
         );
 
-        $response = new StreamedResponse(function () use ($agent, $prompt, $conversation, $model, $allowTitleDispatch) {
+        $response = new StreamedResponse(function () use ($agent, $prompt, $conversation, $model, $allowTitleDispatch, $truncation) {
             @ini_set('zlib.output_compression', '0');
             @ini_set('output_buffering', 'off');
             @ini_set('implicit_flush', '1');
+
+            // Announce truncation *before* the first delta so the client
+            // can surface the banner without waiting for the full reply.
+            if ($truncation->wasTruncated()) {
+                $this->emit('truncation', [
+                    'type' => 'truncation',
+                    'dropped' => $truncation->droppedCount,
+                    'kept_tokens' => $truncation->tokensUsed,
+                ]);
+            }
 
             $collected = '';
             $promptTokens = null;
@@ -353,15 +370,6 @@ class ChatController extends Controller
         $response->headers->set('X-Accel-Buffering', 'no');
 
         return $response;
-    }
-
-    private function toSdkMessage(Message $message): \Laravel\Ai\Messages\Message
-    {
-        return match ($message->role) {
-            MessageRole::User => new UserMessage($message->content),
-            MessageRole::Assistant => new AssistantMessage($message->content),
-            MessageRole::System => new UserMessage($message->content),
-        };
     }
 
     private function emit(string $event, array $payload): void

@@ -169,7 +169,8 @@
         "close_conversations": "Close conversations",
         "regenerate": "Regenerate",
         "model": "Model",
-        "model_selector_aria": "Select AI model (current: {label})"
+        "model_selector_aria": "Select AI model (current: {label})",
+        "truncation_notice": "{count} older messages were trimmed to fit the context window"
     },
     "teams": {
         "title": "Teams",
