@@ -10,7 +10,7 @@ import { dashboard } from '@/routes';
 import chatRoutes from '@/routes/chat';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/vue3';
-import { Menu, RefreshCcw } from 'lucide-vue-next';
+import { AlertCircle, Menu, RefreshCcw } from 'lucide-vue-next';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 
@@ -53,7 +53,17 @@ type StreamErrorEvent = {
     message?: string;
 };
 
-type StreamEvent = StreamDeltaEvent | StreamDoneEvent | StreamErrorEvent;
+type StreamTruncationEvent = {
+    type: 'truncation';
+    dropped: number;
+    kept_tokens?: number;
+};
+
+type StreamEvent = StreamDeltaEvent | StreamDoneEvent | StreamErrorEvent | StreamTruncationEvent;
+
+type TruncationNotice = {
+    dropped: number;
+};
 
 type ChatState = {
     messages: Message[];
@@ -62,6 +72,7 @@ type ChatState = {
     error: string | null;
     conversationId: number | string | null;
     currentModel: string;
+    truncationNotice: TruncationNotice | null;
 };
 
 type LoadedMessage = {
@@ -108,6 +119,7 @@ const state = reactive<ChatState>({
     error: null,
     conversationId: null,
     currentModel: loadSavedModel(),
+    truncationNotice: null,
 });
 
 watch(
@@ -248,6 +260,18 @@ function handleSseEvent(assistantId: string, evt: ParsedSseEvent): boolean {
     }
 
     if (!payload) return false;
+
+    // A dedicated `event: truncation` frame is pushed ahead of the first
+    // delta when the server had to drop older turns to fit the context
+    // window. Record it so the banner can render, but keep streaming —
+    // truncation is informational, not an error.
+    if (evt.event === 'truncation' || payload.type === 'truncation') {
+        const truncation = payload as StreamTruncationEvent;
+        if (typeof truncation.dropped === 'number' && truncation.dropped > 0) {
+            state.truncationNotice = { dropped: truncation.dropped };
+        }
+        return false;
+    }
 
     if (payload.type === 'delta' && typeof (payload as StreamDeltaEvent).text === 'string') {
         appendDelta(assistantId, (payload as StreamDeltaEvent).text);
@@ -400,6 +424,10 @@ async function send() {
     if (!text || state.streaming) return;
 
     state.error = null;
+    // The banner reflects the truncation verdict of the *current* turn.
+    // Reset before each fresh send so a stale notice doesn't linger when
+    // the next request comfortably fits.
+    state.truncationNotice = null;
 
     const userMessage: Message = {
         id: genId(),
@@ -467,6 +495,7 @@ async function regenerate() {
     if (idx === -1) return;
 
     state.error = null;
+    state.truncationNotice = null;
 
     // Replace the existing assistant bubble in place with a fresh
     // streaming placeholder so the UI mirrors the server-side delete.
@@ -520,6 +549,7 @@ async function selectConversation(id: number) {
     stopStream();
     drawerOpen.value = false;
     state.error = null;
+    state.truncationNotice = null;
     try {
         const res = await fetch(`/chat/conversations/${id}`, {
             credentials: 'same-origin',
@@ -597,6 +627,7 @@ function newChat() {
     state.messages = [];
     state.conversationId = null;
     state.error = null;
+    state.truncationNotice = null;
     drawerOpen.value = false;
     nextTick(() => {
         const el = (inputRef.value as unknown as { $el?: HTMLElement } | null)?.$el as HTMLInputElement | undefined;
@@ -661,6 +692,20 @@ onBeforeUnmount(() => {
 
                 <div ref="scrollEl" class="min-h-0 flex-1 overflow-auto rounded-xl border border-sidebar-border/70 p-4 dark:border-sidebar-border">
                     <div class="flex flex-col gap-3">
+                        <!--
+                            Non-fatal notice emitted by the server when
+                            older turns had to be dropped so the prompt
+                            could fit inside the model's context window.
+                        -->
+                        <div
+                            v-if="state.truncationNotice"
+                            role="status"
+                            class="flex items-center gap-2 rounded bg-amber-50 px-3 py-1.5 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
+                            data-testid="chat-truncation-banner"
+                        >
+                            <AlertCircle class="size-3.5 shrink-0" aria-hidden="true" />
+                            <span>{{ t('chat.truncation_notice', { count: state.truncationNotice.dropped }) }}</span>
+                        </div>
                         <div v-if="state.messages.length === 0" class="self-center text-xs opacity-70">
                             {{ t('chat.no_messages') }}
                         </div>

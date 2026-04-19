@@ -50,20 +50,40 @@ return [
         'gpt-oss-120b' => [
             'label' => 'gpt-oss',
             'description' => 'General purpose (default)',
+            // Sakura-hosted gpt-oss advertises 128k context but we stay
+            // conservative to leave room for system prompt + completion.
+            'max_context_tokens' => 100_000,
         ],
         'llm-jp-3.1-8x13b-instruct4' => [
             'label' => 'llm-jp',
             'description' => 'Japanese-tuned',
+            'max_context_tokens' => 32_000,
         ],
         'Qwen3-Coder-480B-A35B-Instruct-FP8' => [
             'label' => 'qwen-coder-480',
             'description' => 'Coding (large)',
+            'max_context_tokens' => 128_000,
         ],
         'Qwen3-Coder-30B-A3B-Instruct' => [
             'label' => 'qwen-coder-30',
             'description' => 'Coding (lightweight)',
+            // Published upper bound is uncertain; align with gpt-oss as a safe default.
+            'max_context_tokens' => 100_000,
         ],
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Chat History Truncation
+    |--------------------------------------------------------------------------
+    |
+    | Fallback `max_context_tokens` budget when the requested model has no
+    | explicit entry in `chat_models` (unknown models). Kept intentionally
+    | small so surprising models can't accidentally blow past provider limits.
+    |
+    */
+
+    'chat_fallback_max_context_tokens' => 32_000,
 
     /*
     |--------------------------------------------------------------------------
