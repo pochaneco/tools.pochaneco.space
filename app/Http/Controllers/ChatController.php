@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\MessageRole;
+use App\Jobs\GenerateConversationTitle;
 use App\Models\Conversation;
 use App\Models\Message;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
@@ -186,6 +187,14 @@ class ChatController extends Controller
                     'prompt_tokens' => $promptTokens,
                     'completion_tokens' => $completionTokens,
                 ]);
+
+                // Only schedule title generation for the *first* assistant
+                // reply in a conversation (user + assistant = 2). Subsequent
+                // turns leave the existing title alone, which also protects
+                // titles that the user has renamed manually after the fact.
+                if ($conversation->messages()->count() === 2) {
+                    GenerateConversationTitle::dispatch($conversation)->afterResponse();
+                }
 
                 $this->emit('done', [
                     'type' => 'done',
