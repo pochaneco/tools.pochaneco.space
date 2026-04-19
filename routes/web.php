@@ -25,6 +25,7 @@ Route::post('teams/invitations/{token}/register', [\App\Http\Controllers\TeamInv
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/chat', [ChatController::class, 'index'])->name('chat.index');
     Route::post('/chat/message', [ChatController::class, 'message'])->name('chat.message');
+    Route::post('/chat/regenerate', [ChatController::class, 'regenerate'])->name('chat.regenerate');
     Route::get('/chat/conversations', [ChatController::class, 'conversations'])
         ->name('chat.conversations.index');
     Route::get('/chat/conversations/{conversation}', [ChatController::class, 'conversation'])
