@@ -22,6 +22,16 @@ class Message extends Model
     ];
 
     /**
+     * Parent relationships whose timestamps should be updated when this
+     * model is saved or destroyed. Keeping the conversation's updated_at
+     * fresh lets us sort the sidebar list by most-recent activity using a
+     * single column.
+     *
+     * @var array<int, string>
+     */
+    protected $touches = ['conversation'];
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

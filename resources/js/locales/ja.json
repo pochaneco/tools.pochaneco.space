@@ -153,7 +153,20 @@
         "backend_not_ready": "AI バックエンドがまだ準備されていません",
         "no_messages": "メッセージはありません",
         "user": "ユーザー",
-        "assistant": "アシスタント"
+        "assistant": "アシスタント",
+        "conversation_list": "会話一覧",
+        "new_conversation": "新しい会話",
+        "rename": "名前を変更",
+        "rename_placeholder": "会話のタイトル",
+        "rename_save": "保存",
+        "rename_cancel": "キャンセル",
+        "delete": "削除",
+        "delete_confirm": "この会話を削除しますか？この操作は取り消せません。",
+        "empty_list": "会話がありません",
+        "no_conversations_yet": "新しい会話を始めましょう。",
+        "untitled": "無題",
+        "open_conversations": "会話一覧を開く",
+        "close_conversations": "会話一覧を閉じる"
     },
     "teams": {
         "title": "チーム",

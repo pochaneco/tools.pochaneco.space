@@ -153,7 +153,20 @@
         "backend_not_ready": "AI backend is not available yet",
         "no_messages": "No messages",
         "user": "User",
-        "assistant": "Assistant"
+        "assistant": "Assistant",
+        "conversation_list": "Conversations",
+        "new_conversation": "New conversation",
+        "rename": "Rename",
+        "rename_placeholder": "Conversation title",
+        "rename_save": "Save",
+        "rename_cancel": "Cancel",
+        "delete": "Delete",
+        "delete_confirm": "Delete this conversation? This cannot be undone.",
+        "empty_list": "No conversations yet",
+        "no_conversations_yet": "Start a new conversation to get going.",
+        "untitled": "Untitled",
+        "open_conversations": "Open conversations",
+        "close_conversations": "Close conversations"
     },
     "teams": {
         "title": "Teams",
