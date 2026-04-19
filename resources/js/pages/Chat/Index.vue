@@ -9,8 +9,8 @@ import { dashboard } from '@/routes';
 import chatRoutes from '@/routes/chat';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/vue3';
-import { Menu } from 'lucide-vue-next';
-import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { Menu, RefreshCcw } from 'lucide-vue-next';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 const { t } = useI18n();
@@ -71,6 +71,7 @@ type LoadedConversation = {
 };
 
 const CHAT_MESSAGE_ENDPOINT = chatRoutes.message.url();
+const CHAT_REGENERATE_ENDPOINT = chatRoutes.regenerate.url();
 const CONVERSATIONS_INDEX_URL = '/chat/conversations';
 
 const state = reactive<ChatState>({
@@ -220,13 +221,18 @@ function handleSseEvent(assistantId: string, evt: ParsedSseEvent): boolean {
     return false;
 }
 
-async function streamAssistantReply(userMessage: string, assistantId: string) {
+type StreamRequest = {
+    endpoint: string;
+    body: Record<string, unknown>;
+};
+
+async function runStream(request: StreamRequest, assistantId: string) {
     abortController = new AbortController();
     const csrf = getCsrfToken();
 
     let response: Response;
     try {
-        response = await fetch(CHAT_MESSAGE_ENDPOINT, {
+        response = await fetch(request.endpoint, {
             method: 'POST',
             credentials: 'same-origin',
             headers: {
@@ -235,10 +241,7 @@ async function streamAssistantReply(userMessage: string, assistantId: string) {
                 ...(csrf ? { 'X-CSRF-TOKEN': csrf, 'X-XSRF-TOKEN': csrf } : {}),
                 'X-Requested-With': 'XMLHttpRequest',
             },
-            body: JSON.stringify({
-                message: userMessage,
-                conversation_id: state.conversationId,
-            }),
+            body: JSON.stringify(request.body),
             signal: abortController.signal,
         });
     } catch (err) {
@@ -304,6 +307,31 @@ async function streamAssistantReply(userMessage: string, assistantId: string) {
     }
 }
 
+async function streamAssistantReply(userMessage: string, assistantId: string) {
+    await runStream(
+        {
+            endpoint: CHAT_MESSAGE_ENDPOINT,
+            body: {
+                message: userMessage,
+                conversation_id: state.conversationId,
+            },
+        },
+        assistantId,
+    );
+}
+
+async function streamRegeneratedReply(assistantId: string) {
+    await runStream(
+        {
+            endpoint: CHAT_REGENERATE_ENDPOINT,
+            body: {
+                conversation_id: state.conversationId,
+            },
+        },
+        assistantId,
+    );
+}
+
 function stopStream() {
     if (abortController) {
         abortController.abort();
@@ -350,6 +378,64 @@ async function send() {
         abortController = null;
         currentAssistantId = null;
         // Refresh the sidebar so the new (or touched) conversation floats up
+        loadConversations();
+    }
+}
+
+/**
+ * Index of the newest assistant message in `state.messages`, or -1 if
+ * there is none. Used to decide where to render the regenerate button.
+ */
+const latestAssistantIndex = computed<number>(() => {
+    for (let i = state.messages.length - 1; i >= 0; i--) {
+        if (state.messages[i].role === 'assistant') return i;
+    }
+    return -1;
+});
+
+/**
+ * The regenerate button is only meaningful when:
+ * - we have a persisted conversation on the server (conversationId set)
+ * - we are not currently streaming (otherwise Stop is the right action)
+ * - the last message in the thread is an assistant message
+ * - that message is fully rendered (not mid-stream)
+ */
+function canRegenerate(index: number): boolean {
+    if (state.streaming) return false;
+    if (state.conversationId === null) return false;
+    if (index !== latestAssistantIndex.value) return false;
+    if (index !== state.messages.length - 1) return false;
+    const msg = state.messages[index];
+    return !msg.streaming;
+}
+
+async function regenerate() {
+    if (state.streaming || state.conversationId === null) return;
+    const idx = latestAssistantIndex.value;
+    if (idx === -1) return;
+
+    state.error = null;
+
+    // Replace the existing assistant bubble in place with a fresh
+    // streaming placeholder so the UI mirrors the server-side delete.
+    const placeholder: Message = {
+        id: genId(),
+        text: '',
+        ts: new Date().toISOString(),
+        role: 'assistant',
+        streaming: true,
+    };
+    state.messages.splice(idx, 1, placeholder);
+    currentAssistantId = placeholder.id;
+    state.streaming = true;
+    scrollToBottom();
+
+    try {
+        await streamRegeneratedReply(placeholder.id);
+    } finally {
+        state.streaming = false;
+        abortController = null;
+        currentAssistantId = null;
         loadConversations();
     }
 }
@@ -524,25 +610,37 @@ onBeforeUnmount(() => {
                         <div v-if="state.messages.length === 0" class="self-center text-xs opacity-70">
                             {{ t('chat.no_messages') }}
                         </div>
-                        <div
-                            v-for="m in state.messages"
-                            :key="m.id"
-                            class="max-w-[80%] rounded-md px-3 py-2 text-sm"
-                            :class="m.role === 'user' ? 'self-end bg-primary/10' : 'self-start bg-muted'"
-                        >
-                            <div class="text-xs opacity-70">
-                                {{ new Date(m.ts).toLocaleTimeString() }} ·
-                                {{ m.role === 'user' ? t('chat.user') : t('chat.assistant') }}
+                        <template v-for="(m, index) in state.messages" :key="m.id">
+                            <div
+                                class="max-w-[80%] rounded-md px-3 py-2 text-sm"
+                                :class="m.role === 'user' ? 'self-end bg-primary/10' : 'self-start bg-muted'"
+                            >
+                                <div class="text-xs opacity-70">
+                                    {{ new Date(m.ts).toLocaleTimeString() }} ·
+                                    {{ m.role === 'user' ? t('chat.user') : t('chat.assistant') }}
+                                </div>
+                                <div v-if="m.role === 'assistant'" class="assistant-message">
+                                    <MarkdownMessage v-if="m.text.length > 0" :content="m.text" />
+                                    <span v-if="m.streaming" class="chat-cursor" aria-hidden="true">&#9608;</span>
+                                </div>
+                                <div v-else class="whitespace-pre-wrap">
+                                    <template v-if="m.text.length > 0">{{ m.text }}</template>
+                                    <span v-if="m.streaming" class="chat-cursor" aria-hidden="true">&#9608;</span>
+                                </div>
                             </div>
-                            <div v-if="m.role === 'assistant'" class="assistant-message">
-                                <MarkdownMessage v-if="m.text.length > 0" :content="m.text" />
-                                <span v-if="m.streaming" class="chat-cursor" aria-hidden="true">&#9608;</span>
-                            </div>
-                            <div v-else class="whitespace-pre-wrap">
-                                <template v-if="m.text.length > 0">{{ m.text }}</template>
-                                <span v-if="m.streaming" class="chat-cursor" aria-hidden="true">&#9608;</span>
-                            </div>
-                        </div>
+                            <Button
+                                v-if="m.role === 'assistant' && canRegenerate(index)"
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                class="-mt-1 h-7 self-start px-2 text-xs opacity-80 hover:opacity-100"
+                                :aria-label="t('chat.regenerate')"
+                                @click="regenerate"
+                            >
+                                <RefreshCcw class="mr-1 size-3" aria-hidden="true" />
+                                {{ t('chat.regenerate') }}
+                            </Button>
+                        </template>
                         <div v-if="state.streaming" class="self-start text-xs opacity-70">
                             {{ t('chat.streaming') }}
                         </div>

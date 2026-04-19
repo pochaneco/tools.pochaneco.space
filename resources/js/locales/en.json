@@ -166,7 +166,8 @@
         "no_conversations_yet": "Start a new conversation to get going.",
         "untitled": "Untitled",
         "open_conversations": "Open conversations",
-        "close_conversations": "Close conversations"
+        "close_conversations": "Close conversations",
+        "regenerate": "Regenerate"
     },
     "teams": {
         "title": "Teams",
