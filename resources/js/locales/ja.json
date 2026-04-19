@@ -169,7 +169,8 @@
         "close_conversations": "会話一覧を閉じる",
         "regenerate": "再生成",
         "model": "モデル",
-        "model_selector_aria": "AI モデルを選択 (現在: {label})"
+        "model_selector_aria": "AI モデルを選択 (現在: {label})",
+        "truncation_notice": "コンテキスト容量のため、過去 {count} 件のメッセージは送信対象から除外されました"
     },
     "teams": {
         "title": "チーム",
