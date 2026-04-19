@@ -59,6 +59,7 @@ cp .env.example .env
 - **[AI Agent開発ガイド](./AGENT.md)** - AI開発時の重要事項
 - **[環境構築](./docs/development/setup.md)** - 初期セットアップ詳細
 - **[開発ワークフロー](./docs/development/workflow.md)** - 日常的な開発作業
+- **[デプロイ](./docs/development/deployment.md)** - Deployer 経由の本番デプロイ手順
 - **[実装パターン](./docs/guides/patterns.md)** - よくあるパターン集
 - **[テスト](./docs/guides/testing.md)** - Pestによるテスト作成
 - **[トラブルシューティング](./docs/reference/troubleshooting.md)** - エラー対処法
