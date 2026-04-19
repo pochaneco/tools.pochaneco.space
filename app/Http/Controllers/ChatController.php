@@ -69,16 +69,31 @@ class ChatController extends Controller
         $conversations = Conversation::query()
             ->where('user_id', $request->user()->id)
             ->withCount('messages')
+            ->withSum('messages as prompt_tokens_sum', 'prompt_tokens')
+            ->withSum('messages as completion_tokens_sum', 'completion_tokens')
             ->orderByDesc('updated_at')
             ->limit(self::CONVERSATION_LIST_LIMIT)
             ->get()
-            ->map(fn (Conversation $c) => [
-                'id' => $c->id,
-                'title' => $c->title,
-                'model' => $c->model,
-                'updated_at' => optional($c->updated_at)->toIso8601String(),
-                'messages_count' => (int) $c->messages_count,
-            ])
+            ->map(function (Conversation $c) {
+                $prompt = (int) ($c->prompt_tokens_sum ?? 0);
+                $completion = (int) ($c->completion_tokens_sum ?? 0);
+
+                return [
+                    'id' => $c->id,
+                    'title' => $c->title,
+                    'model' => $c->model,
+                    'updated_at' => optional($c->updated_at)->toIso8601String(),
+                    'messages_count' => (int) $c->messages_count,
+                    // Expose only the cumulative total in the list payload.
+                    // The per-direction breakdown (prompt vs completion) is
+                    // reserved for the detail view so the sidebar stays
+                    // visually calm; clients that want the full breakdown
+                    // fetch the single-conversation endpoint.
+                    'usage' => [
+                        'total' => $prompt + $completion,
+                    ],
+                ];
+            })
             ->all();
 
         return response()->json($conversations);
@@ -93,6 +108,13 @@ class ChatController extends Controller
 
         $conversation->load(['messages' => fn ($q) => $q->orderBy('created_at')]);
 
+        // Reduce over the already-loaded message collection instead of
+        // issuing two extra `SUM()` queries. NULL token counts (e.g. user
+        // messages, or assistant rows written before Phase 6) coalesce to
+        // zero so empty conversations naturally report `total = 0`.
+        $promptTokens = (int) $conversation->messages->sum(fn (Message $m) => (int) ($m->prompt_tokens ?? 0));
+        $completionTokens = (int) $conversation->messages->sum(fn (Message $m) => (int) ($m->completion_tokens ?? 0));
+
         return response()->json([
             'id' => $conversation->id,
             'title' => $conversation->title,
@@ -105,6 +127,11 @@ class ChatController extends Controller
                 'model' => $m->model,
                 'created_at' => optional($m->created_at)->toIso8601String(),
             ])->all(),
+            'usage' => [
+                'prompt' => $promptTokens,
+                'completion' => $completionTokens,
+                'total' => $promptTokens + $completionTokens,
+            ],
         ]);
     }
 
@@ -355,11 +382,15 @@ class ChatController extends Controller
                     'type' => 'done',
                     'conversation_id' => $conversation->id,
                     'message_id' => $assistantMessage->id,
+                    // Piggyback the updated cumulative usage so the UI can
+                    // refresh the header without a follow-up round trip.
+                    'usage' => $this->usageTotals($conversation),
                 ]);
             } else {
                 $this->emit('done', [
                     'type' => 'done',
                     'conversation_id' => $conversation->id,
+                    'usage' => $this->usageTotals($conversation),
                 ]);
             }
         });
@@ -380,5 +411,25 @@ class ChatController extends Controller
         echo 'data: '.json_encode($payload, JSON_UNESCAPED_UNICODE)."\n\n";
         @ob_flush();
         @flush();
+    }
+
+    /**
+     * Cumulative prompt/completion/total token counts for a conversation.
+     * Computed from `messages.prompt_tokens` + `messages.completion_tokens`
+     * (sums ignore NULLs). Used both in the SSE `done` payload and as a
+     * shared shape callers can consume.
+     *
+     * @return array{prompt: int, completion: int, total: int}
+     */
+    private function usageTotals(Conversation $conversation): array
+    {
+        $prompt = (int) $conversation->messages()->sum('prompt_tokens');
+        $completion = (int) $conversation->messages()->sum('completion_tokens');
+
+        return [
+            'prompt' => $prompt,
+            'completion' => $completion,
+            'total' => $prompt + $completion,
+        ];
     }
 }

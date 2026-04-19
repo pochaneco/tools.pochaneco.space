@@ -28,7 +28,8 @@ it('lists current users conversations ordered by updated_at desc', function () {
     expect($ids)->toBe([$newest->id, $middle->id, $older->id]);
 
     $payload = $response->json();
-    expect($payload[0])->toHaveKeys(['id', 'title', 'model', 'updated_at', 'messages_count']);
+    expect($payload[0])->toHaveKeys(['id', 'title', 'model', 'updated_at', 'messages_count', 'usage']);
+    expect($payload[0]['usage'])->toHaveKey('total');
 });
 
 it('does not include other users conversations in the list', function () {

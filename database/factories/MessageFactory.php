@@ -44,6 +44,19 @@ class MessageFactory extends Factory
     }
 
     /**
+     * Seed explicit prompt/completion token counts for tests that
+     * exercise cumulative usage calculations. Leaves other attributes
+     * untouched so it composes with `assistant()` / `withModel()`.
+     */
+    public function withTokens(int $prompt, int $completion): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'prompt_tokens' => $prompt,
+            'completion_tokens' => $completion,
+        ]);
+    }
+
+    /**
      * Indicate that the message is from the assistant.
      */
     public function assistant(): static
