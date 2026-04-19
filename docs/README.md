@@ -8,6 +8,7 @@
 ## 開発
 - [環境構築](./development/setup.md)
 - [ワークフロー](./development/workflow.md)
+- [デプロイ](./development/deployment.md)
 
 ## ガイド
 - [実装パターン](./guides/patterns.md)
