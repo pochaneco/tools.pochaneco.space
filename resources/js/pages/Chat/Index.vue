@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import ConversationList, { type ConversationSummary } from '@/components/Chat/ConversationList.vue';
+import MarkdownMessage from '@/components/Chat/MarkdownMessage.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -533,7 +534,11 @@ onBeforeUnmount(() => {
                                 {{ new Date(m.ts).toLocaleTimeString() }} ·
                                 {{ m.role === 'user' ? t('chat.user') : t('chat.assistant') }}
                             </div>
-                            <div class="whitespace-pre-wrap">
+                            <div v-if="m.role === 'assistant'" class="assistant-message">
+                                <MarkdownMessage v-if="m.text.length > 0" :content="m.text" />
+                                <span v-if="m.streaming" class="chat-cursor" aria-hidden="true">&#9608;</span>
+                            </div>
+                            <div v-else class="whitespace-pre-wrap">
                                 <template v-if="m.text.length > 0">{{ m.text }}</template>
                                 <span v-if="m.streaming" class="chat-cursor" aria-hidden="true">&#9608;</span>
                             </div>
