@@ -167,7 +167,9 @@
         "untitled": "無題",
         "open_conversations": "会話一覧を開く",
         "close_conversations": "会話一覧を閉じる",
-        "regenerate": "再生成"
+        "regenerate": "再生成",
+        "model": "モデル",
+        "model_selector_aria": "AI モデルを選択 (現在: {label})"
     },
     "teams": {
         "title": "チーム",

@@ -35,6 +35,38 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Chat Models
+    |--------------------------------------------------------------------------
+    |
+    | The list of chat models the UI exposes as a per-message selector.
+    | Each entry maps the provider-side model identifier to a short label
+    | (shown in the selector and message badge) and a short description
+    | that explains when to reach for that model. Extend this map to add
+    | new models without touching the controller or the Vue components.
+    |
+    */
+
+    'chat_models' => [
+        'gpt-oss-120b' => [
+            'label' => 'gpt-oss',
+            'description' => 'General purpose (default)',
+        ],
+        'llm-jp-3.1-8x13b-instruct4' => [
+            'label' => 'llm-jp',
+            'description' => 'Japanese-tuned',
+        ],
+        'Qwen3-Coder-480B-A35B-Instruct-FP8' => [
+            'label' => 'qwen-coder-480',
+            'description' => 'Coding (large)',
+        ],
+        'Qwen3-Coder-30B-A3B-Instruct' => [
+            'label' => 'qwen-coder-30',
+            'description' => 'Coding (lightweight)',
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Caching
     |--------------------------------------------------------------------------
     |
