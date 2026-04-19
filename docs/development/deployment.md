@@ -11,25 +11,38 @@
 
 ## SSH 接続先
 
-| 項目 | 値 |
-|---|---|
-| ホスト | `<DEPLOY_HOST>` |
-| ユーザー | `pochaneco` |
-| デプロイ先パス | `<DEPLOY_PATH>` |
-| リポジトリ | `git@github.com:pochaneco/tools.pochaneco.space.git` |
+デプロイ先の具体値 (ホスト / ユーザー / パス) は **公開リポジトリに記載しない**。以下の 3 変数をローカル環境で管理する。
+
+| 変数 | 内容 | 取得元 |
+|---|---|---|
+| `DEPLOY_HOST` | 本番サーバの FQDN | インフラ管理者 / 社内 Wiki |
+| `DEPLOY_USER` | SSH ログインユーザー | 同上 |
+| `DEPLOY_PATH` | サーバ上のデプロイ先絶対パス | 同上 |
+
+ローカルマシンの `~/.ssh/config` にホストエントリを登録し、鍵認証でログインできる状態にしておく。値を手元に持つ方法は以下:
+
+- `direnv` (`.envrc` はコミットしない、`.envrc.local` 等でプロジェクトローカルに保持)
+- シェル起動時 export (`~/.zshrc` / `~/.bashrc` の個人設定)
+- パスワードマネージャ → `op run -- ...` のような shim
 
 ## デプロイコマンド
 
 ホスト (Sail 外) で以下を実行:
 
 ```bash
-DEPLOY_HOST=<DEPLOY_HOST> \
-DEPLOY_USER=<DEPLOY_USER> \
-DEPLOY_PATH='<DEPLOY_PATH>' \
+DEPLOY_HOST="$DEPLOY_HOST" \
+DEPLOY_USER="$DEPLOY_USER" \
+DEPLOY_PATH="$DEPLOY_PATH" \
 php vendor/bin/dep deploy
 ```
 
-環境変数を毎回指定しない運用にしたい場合は `direnv` や `~/.zshrc` で export しておく。
+env が既に export 済みなら:
+
+```bash
+php vendor/bin/dep deploy
+```
+
+`deploy.php` は `getenv('DEPLOY_HOST')` 等が未設定の場合にダミーホストへ向くので、**必ず事前に環境変数を設定**する。
 
 ## Deployer が行うこと (タスク順)
 
@@ -54,11 +67,10 @@ php vendor/bin/dep deploy
 サーバの `shared/.env` に本番向けの環境変数を配置する必要がある。ローカルの `.env.production` をアップロードするヘルパータスクを用意:
 
 ```bash
-DEPLOY_HOST=<DEPLOY_HOST> \
-DEPLOY_USER=<DEPLOY_USER> \
-DEPLOY_PATH='<DEPLOY_PATH>' \
 php vendor/bin/dep env:push
 ```
+
+(環境変数 `DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_PATH` を事前に設定しておくこと)
 
 このタスクは `.env.production` を `<deploy_path>/shared/.env` にアップロードし、`chmod 600` する。**本番 API キー等を変更した後は `env:push` → `deploy` の順で実行**。
 
@@ -67,11 +79,10 @@ php vendor/bin/dep env:push
 直前のリリースに戻す:
 
 ```bash
-DEPLOY_HOST=<DEPLOY_HOST> \
-DEPLOY_USER=<DEPLOY_USER> \
-DEPLOY_PATH='<DEPLOY_PATH>' \
 php vendor/bin/dep rollback
 ```
+
+(環境変数は deploy と同じものを export しておく)
 
 `current` symlink が一つ前の `releases/<N-1>` を指し直す。マイグレーションは自動ロールバックされないので、スキーマ変更が絡む場合は手動で `artisan migrate:rollback` も必要。
 
