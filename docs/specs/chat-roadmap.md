@@ -3,6 +3,8 @@
 最終更新: 2026-04-19
 対象機能: `/chat` (さくらのAI Engine 経由、`laravel/ai` SDK)
 
+> **ステータス**: 全 7 フェーズ ✅ **完了** (PR #9, #11, #12, #13, #14, #15, #16)
+
 ## 目的
 
 現在の AI チャット (PR #7〜#9 で導入) を「モダンなチャット UX」へ段階的に拡張する。各フェーズを **独立した PR** として実装し、履歴を残した上でマージする。
@@ -24,7 +26,9 @@
 - リネーム (inline) / 削除 (confirm) / 新規会話ボタン
 - `Message::$touches = ['conversation']` で `updated_at` 自動更新 → 最新メッセージ順ソート
 
-## Phase 2: Markdown + コードハイライト
+## Phase 2: Markdown + コードハイライト ✅ 完了
+
+**PR**: [#11](https://github.com/pochaneco/tools.pochaneco.space/pull/11)
 
 **目的**: AI 応答の読みやすさ向上。
 
@@ -46,7 +50,9 @@
 
 ---
 
-## Phase 3: AI 自動タイトル生成
+## Phase 3: AI 自動タイトル生成 ✅ 完了
+
+**PR**: [#12](https://github.com/pochaneco/tools.pochaneco.space/pull/12)
 
 **目的**: `先頭60字 slice` の仮タイトルを、AI 要約の短いタイトルに置き換え。
 
@@ -71,7 +77,9 @@
 
 ---
 
-## Phase 4: 応答の再生成ボタン (Regenerate)
+## Phase 4: 応答の再生成ボタン (Regenerate) ✅ 完了
+
+**PR**: [#13](https://github.com/pochaneco/tools.pochaneco.space/pull/13)
 
 **目的**: 不満足な応答を捨てて同じ user message で作り直す。
 
@@ -92,7 +100,9 @@
 
 ---
 
-## Phase 5: メッセージ毎モデル切替
+## Phase 5: メッセージ毎モデル切替 ✅ 完了
+
+**PR**: [#14](https://github.com/pochaneco/tools.pochaneco.space/pull/14)
 
 **目的**: 用途 (汎用 / 日本語 / コーディング) に応じてメッセージ単位で AI モデルを使い分け。
 
@@ -118,7 +128,9 @@
 
 ---
 
-## Phase 6: 履歴トランケーション (token 数ベース)
+## Phase 6: 履歴トランケーション (token 数ベース) ✅ 完了
+
+**PR**: [#15](https://github.com/pochaneco/tools.pochaneco.space/pull/15)
 
 **目的**: 会話が長くなると context window を超えて失敗 / 過課金になるのを防ぐ。
 
@@ -141,7 +153,9 @@
 
 ---
 
-## Phase 7: トークン使用量 (累計) 表示
+## Phase 7: トークン使用量 (累計) 表示 ✅ 完了
+
+**PR**: [#16](https://github.com/pochaneco/tools.pochaneco.space/pull/16)
 
 **目的**: コスト把握 / 利用量感覚。
 
