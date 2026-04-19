@@ -17,6 +17,7 @@ class Message extends Model
         'conversation_id',
         'role',
         'content',
+        'model',
         'prompt_tokens',
         'completion_tokens',
     ];

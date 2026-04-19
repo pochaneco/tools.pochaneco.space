@@ -167,7 +167,9 @@
         "untitled": "Untitled",
         "open_conversations": "Open conversations",
         "close_conversations": "Close conversations",
-        "regenerate": "Regenerate"
+        "regenerate": "Regenerate",
+        "model": "Model",
+        "model_selector_aria": "Select AI model (current: {label})"
     },
     "teams": {
         "title": "Teams",
