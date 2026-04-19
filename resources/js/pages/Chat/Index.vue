@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConversationHeader, { type ConversationUsage } from '@/components/Chat/ConversationHeader.vue';
 import ConversationList, { type ConversationSummary } from '@/components/Chat/ConversationList.vue';
 import MarkdownMessage from '@/components/Chat/MarkdownMessage.vue';
 import ModelSelector, { type ModelMap } from '@/components/Chat/ModelSelector.vue';
@@ -46,6 +47,7 @@ type StreamDoneEvent = {
     type: 'done';
     conversation_id?: number | string;
     message_id?: number | string;
+    usage?: ConversationUsage;
 };
 
 type StreamErrorEvent = {
@@ -73,6 +75,9 @@ type ChatState = {
     conversationId: number | string | null;
     currentModel: string;
     truncationNotice: TruncationNotice | null;
+    conversationTitle: string | null;
+    conversationModel: string | null;
+    conversationUsage: ConversationUsage | null;
 };
 
 type LoadedMessage = {
@@ -88,6 +93,7 @@ type LoadedConversation = {
     title: string | null;
     model: string | null;
     messages: LoadedMessage[];
+    usage?: ConversationUsage;
 };
 
 const CHAT_MESSAGE_ENDPOINT = chatRoutes.message.url();
@@ -120,6 +126,9 @@ const state = reactive<ChatState>({
     conversationId: null,
     currentModel: loadSavedModel(),
     truncationNotice: null,
+    conversationTitle: null,
+    conversationModel: null,
+    conversationUsage: null,
 });
 
 watch(
@@ -288,6 +297,12 @@ function handleSseEvent(assistantId: string, evt: ParsedSseEvent): boolean {
         if (done.conversation_id !== undefined) {
             state.conversationId = done.conversation_id;
         }
+        // The server piggybacks the fresh cumulative usage on the done
+        // event so the header updates in the same round-trip as the
+        // assistant reply, without a follow-up GET.
+        if (done.usage) {
+            state.conversationUsage = done.usage;
+        }
         return true;
     }
 
@@ -438,6 +453,18 @@ async function send() {
     state.messages.push(userMessage);
     state.input = '';
 
+    // Give the header something sensible to show immediately on the very
+    // first send of a brand-new conversation. The server may replace the
+    // title later via AI summarization, but the UI shouldn't flash empty.
+    if (state.conversationId === null) {
+        if (!state.conversationTitle) {
+            state.conversationTitle = text.slice(0, 60);
+        }
+        if (!state.conversationModel) {
+            state.conversationModel = state.currentModel;
+        }
+    }
+
     const assistantMessage: Message = {
         id: genId(),
         text: '',
@@ -562,6 +589,9 @@ async function selectConversation(id: number) {
         const data = (await res.json()) as LoadedConversation;
         state.messages = data.messages.map(mapDbMessageToUi);
         state.conversationId = data.id;
+        state.conversationTitle = data.title;
+        state.conversationModel = data.model;
+        state.conversationUsage = data.usage ?? { prompt: 0, completion: 0, total: 0 };
         scrollToBottom();
     } catch {
         state.error = t('chat.connection_error');
@@ -628,6 +658,9 @@ function newChat() {
     state.conversationId = null;
     state.error = null;
     state.truncationNotice = null;
+    state.conversationTitle = null;
+    state.conversationModel = null;
+    state.conversationUsage = null;
     drawerOpen.value = false;
     nextTick(() => {
         const el = (inputRef.value as unknown as { $el?: HTMLElement } | null)?.$el as HTMLInputElement | undefined;
@@ -689,6 +722,22 @@ onBeforeUnmount(() => {
                     </Sheet>
                     <span class="text-sm font-medium">{{ t('chat.conversation_list') }}</span>
                 </div>
+
+                <!--
+                    Conversation-level header: surfaces title, default model,
+                    and cumulative token usage so the user knows both which
+                    thread they're in and roughly how much it has cost so
+                    far. Only rendered once a conversation exists on the
+                    server side (or is at least being composed) so the
+                    brand-new chat screen doesn't show an empty card.
+                -->
+                <ConversationHeader
+                    v-if="state.conversationId !== null || state.conversationTitle"
+                    :title="state.conversationTitle"
+                    :model="state.conversationModel"
+                    :model-label="labelFor(state.conversationModel)"
+                    :usage="state.conversationUsage"
+                />
 
                 <div ref="scrollEl" class="min-h-0 flex-1 overflow-auto rounded-xl border border-sidebar-border/70 p-4 dark:border-sidebar-border">
                     <div class="flex flex-col gap-3">
