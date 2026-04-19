@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Laravel\Ai\AnonymousAgent;
 use Laravel\Ai\Messages\AssistantMessage;
@@ -33,7 +34,32 @@ class ChatController extends Controller
 
     public function index(): \Inertia\Response
     {
-        return Inertia::render('Chat/Index');
+        return Inertia::render('Chat/Index', [
+            'availableModels' => $this->availableModelsForFront(),
+            'defaultModel' => config('ai.default_chat_model'),
+        ]);
+    }
+
+    /**
+     * Shape the chat model catalog into a front-end friendly payload.
+     * Key = provider model id (what the SDK expects); value = label +
+     * description we render in the selector UI.
+     *
+     * @return array<string, array{label: string, description: string}>
+     */
+    private function availableModelsForFront(): array
+    {
+        $models = config('ai.chat_models', []);
+
+        $normalized = [];
+        foreach ($models as $id => $meta) {
+            $normalized[$id] = [
+                'label' => (string) ($meta['label'] ?? $id),
+                'description' => (string) ($meta['description'] ?? ''),
+            ];
+        }
+
+        return $normalized;
     }
 
     /**
@@ -77,6 +103,7 @@ class ChatController extends Controller
                 'id' => $m->id,
                 'role' => $m->role instanceof MessageRole ? $m->role->value : $m->role,
                 'content' => $m->content,
+                'model' => $m->model,
                 'created_at' => optional($m->created_at)->toIso8601String(),
             ])->all(),
         ]);
@@ -120,12 +147,28 @@ class ChatController extends Controller
         $validated = $request->validate([
             'message' => ['required', 'string', 'max:8000'],
             'conversation_id' => ['nullable', 'integer', 'exists:conversations,id'],
+            'model' => ['nullable', 'string', Rule::in(array_keys(config('ai.chat_models', [])))],
         ]);
 
         $user = $request->user();
-        $model = config('ai.default_chat_model');
 
-        $conversation = $this->resolveConversation($user->id, $validated['conversation_id'] ?? null, $validated['message'], $model);
+        // Load (or create) the conversation first so we can honor its stored
+        // default model when the caller didn't pick one for this turn.
+        $conversationId = $validated['conversation_id'] ?? null;
+        $existingConversation = $conversationId !== null
+            ? Conversation::where('user_id', $user->id)->where('id', $conversationId)->firstOrFail()
+            : null;
+
+        $model = $validated['model']
+            ?? $existingConversation?->model
+            ?? config('ai.default_chat_model');
+
+        $conversation = $existingConversation
+            ?? DB::transaction(fn () => Conversation::create([
+                'user_id' => $user->id,
+                'title' => Str::limit(trim($validated['message']), self::TITLE_MAX_LEN, ''),
+                'model' => $model,
+            ]));
 
         // Capture the pre-existing history *before* persisting the new user
         // message so the SDK call receives just the prior turns as context
@@ -160,6 +203,7 @@ class ChatController extends Controller
     {
         $validated = $request->validate([
             'conversation_id' => ['required', 'integer', 'exists:conversations,id'],
+            'model' => ['nullable', 'string', Rule::in(array_keys(config('ai.chat_models', [])))],
         ]);
 
         $conversation = Conversation::findOrFail($validated['conversation_id']);
@@ -195,7 +239,14 @@ class ChatController extends Controller
             ->map(fn (Message $m) => $this->toSdkMessage($m))
             ->all();
 
-        $model = $conversation->model ?? config('ai.default_chat_model');
+        // Per-turn override wins; otherwise fall back to the conversation's
+        // default model, and finally the app-wide default. Regeneration must
+        // NOT rewrite `$conversation->model` — the conversation default is
+        // the first-selected value and stays stable across regenerations so
+        // later, un-selected turns keep the same baseline.
+        $model = $validated['model']
+            ?? $conversation->model
+            ?? config('ai.default_chat_model');
 
         return $this->streamAgentResponse(
             conversation: $conversation,
@@ -217,7 +268,7 @@ class ChatController extends Controller
         Conversation $conversation,
         string $prompt,
         array $history,
-        ?string $model,
+        string $model,
         bool $allowTitleDispatch,
     ): StreamedResponse {
         $agent = new AnonymousAgent(
@@ -265,6 +316,7 @@ class ChatController extends Controller
                     'conversation_id' => $conversation->id,
                     'role' => MessageRole::Assistant->value,
                     'content' => $collected,
+                    'model' => $model,
                     'prompt_tokens' => $promptTokens,
                     'completion_tokens' => $completionTokens,
                 ]);
@@ -301,21 +353,6 @@ class ChatController extends Controller
         $response->headers->set('X-Accel-Buffering', 'no');
 
         return $response;
-    }
-
-    private function resolveConversation(int $userId, ?int $conversationId, string $firstMessage, ?string $model): Conversation
-    {
-        if ($conversationId !== null) {
-            return Conversation::where('user_id', $userId)
-                ->where('id', $conversationId)
-                ->firstOrFail();
-        }
-
-        return DB::transaction(fn () => Conversation::create([
-            'user_id' => $userId,
-            'title' => Str::limit(trim($firstMessage), self::TITLE_MAX_LEN, ''),
-            'model' => $model,
-        ]));
     }
 
     private function toSdkMessage(Message $message): \Laravel\Ai\Messages\Message

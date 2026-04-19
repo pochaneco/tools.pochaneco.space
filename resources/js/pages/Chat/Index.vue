@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import ConversationList, { type ConversationSummary } from '@/components/Chat/ConversationList.vue';
 import MarkdownMessage from '@/components/Chat/MarkdownMessage.vue';
+import ModelSelector, { type ModelMap } from '@/components/Chat/ModelSelector.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -10,8 +11,13 @@ import chatRoutes from '@/routes/chat';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/vue3';
 import { Menu, RefreshCcw } from 'lucide-vue-next';
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+
+const props = defineProps<{
+    availableModels: ModelMap;
+    defaultModel: string;
+}>();
 
 const { t } = useI18n();
 
@@ -28,6 +34,7 @@ type Message = {
     ts: string;
     role: MessageRole;
     streaming?: boolean;
+    model?: string | null;
 };
 
 type StreamDeltaEvent = {
@@ -54,12 +61,14 @@ type ChatState = {
     streaming: boolean;
     error: string | null;
     conversationId: number | string | null;
+    currentModel: string;
 };
 
 type LoadedMessage = {
     id: number;
     role: string;
     content: string;
+    model: string | null;
     created_at: string | null;
 };
 
@@ -73,6 +82,24 @@ type LoadedConversation = {
 const CHAT_MESSAGE_ENDPOINT = chatRoutes.message.url();
 const CHAT_REGENERATE_ENDPOINT = chatRoutes.regenerate.url();
 const CONVERSATIONS_INDEX_URL = '/chat/conversations';
+const MODEL_STORAGE_KEY = 'chat:lastModel';
+
+function loadSavedModel(): string {
+    const catalog = Object.keys(props.availableModels);
+    // Prefer the user's last pick when the browser remembered it, but only
+    // if the id is still present in the current catalog (models can be
+    // removed server-side without breaking returning users).
+    try {
+        const saved = window.localStorage?.getItem(MODEL_STORAGE_KEY);
+        if (saved && catalog.includes(saved)) {
+            return saved;
+        }
+    } catch {
+        // SSR / privacy mode / disabled storage — fall through.
+    }
+    if (catalog.includes(props.defaultModel)) return props.defaultModel;
+    return catalog[0] ?? props.defaultModel;
+}
 
 const state = reactive<ChatState>({
     messages: [],
@@ -80,7 +107,29 @@ const state = reactive<ChatState>({
     streaming: false,
     error: null,
     conversationId: null,
+    currentModel: loadSavedModel(),
 });
+
+watch(
+    () => state.currentModel,
+    (value) => {
+        try {
+            window.localStorage?.setItem(MODEL_STORAGE_KEY, value);
+        } catch {
+            // Persistence is best-effort; ignore storage failures.
+        }
+    },
+);
+
+/**
+ * Short label for a model id as it appears in the per-message badge.
+ * Returns an empty string when the id is falsy so the template can skip
+ * the badge for user messages (which never carry a model).
+ */
+function labelFor(modelId: string | null | undefined): string {
+    if (!modelId) return '';
+    return props.availableModels[modelId]?.label ?? modelId;
+}
 
 const conversations = ref<ConversationSummary[]>([]);
 const drawerOpen = ref(false);
@@ -314,6 +363,7 @@ async function streamAssistantReply(userMessage: string, assistantId: string) {
             body: {
                 message: userMessage,
                 conversation_id: state.conversationId,
+                model: state.currentModel,
             },
         },
         assistantId,
@@ -326,6 +376,7 @@ async function streamRegeneratedReply(assistantId: string) {
             endpoint: CHAT_REGENERATE_ENDPOINT,
             body: {
                 conversation_id: state.conversationId,
+                model: state.currentModel,
             },
         },
         assistantId,
@@ -365,6 +416,7 @@ async function send() {
         ts: new Date().toISOString(),
         role: 'assistant',
         streaming: true,
+        model: state.currentModel,
     };
     state.messages.push(assistantMessage);
     currentAssistantId = assistantMessage.id;
@@ -424,6 +476,7 @@ async function regenerate() {
         ts: new Date().toISOString(),
         role: 'assistant',
         streaming: true,
+        model: state.currentModel,
     };
     state.messages.splice(idx, 1, placeholder);
     currentAssistantId = placeholder.id;
@@ -459,6 +512,7 @@ function mapDbMessageToUi(m: LoadedMessage): Message {
         text: m.content,
         ts: m.created_at ?? new Date().toISOString(),
         role: (m.role as MessageRole) ?? 'user',
+        model: m.model ?? null,
     };
 }
 
@@ -628,18 +682,26 @@ onBeforeUnmount(() => {
                                     <span v-if="m.streaming" class="chat-cursor" aria-hidden="true">&#9608;</span>
                                 </div>
                             </div>
-                            <Button
-                                v-if="m.role === 'assistant' && canRegenerate(index)"
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                class="-mt-1 h-7 self-start px-2 text-xs opacity-80 hover:opacity-100"
-                                :aria-label="t('chat.regenerate')"
-                                @click="regenerate"
+                            <div
+                                v-if="m.role === 'assistant' && (canRegenerate(index) || labelFor(m.model))"
+                                class="-mt-1 flex items-center gap-2 self-start"
                             >
-                                <RefreshCcw class="mr-1 size-3" aria-hidden="true" />
-                                {{ t('chat.regenerate') }}
-                            </Button>
+                                <Button
+                                    v-if="canRegenerate(index)"
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    class="h-7 px-2 text-xs opacity-80 hover:opacity-100"
+                                    :aria-label="t('chat.regenerate')"
+                                    @click="regenerate"
+                                >
+                                    <RefreshCcw class="mr-1 size-3" aria-hidden="true" />
+                                    {{ t('chat.regenerate') }}
+                                </Button>
+                                <span v-if="labelFor(m.model)" class="font-mono text-[10px] text-muted-foreground" :title="m.model ?? undefined">
+                                    {{ labelFor(m.model) }}
+                                </span>
+                            </div>
                         </template>
                         <div v-if="state.streaming" class="self-start text-xs opacity-70">
                             {{ t('chat.streaming') }}
@@ -648,12 +710,13 @@ onBeforeUnmount(() => {
                     </div>
                 </div>
 
-                <form class="flex gap-2" @submit.prevent="send">
+                <form class="flex flex-wrap items-center gap-2" @submit.prevent="send">
+                    <ModelSelector v-model="state.currentModel" :models="props.availableModels" :disabled="state.streaming" />
                     <Input
                         ref="inputRef"
                         v-model="state.input"
                         :placeholder="t('chat.input_placeholder')"
-                        class="flex-1"
+                        class="min-w-[12rem] flex-1"
                         :disabled="state.streaming"
                     />
                     <Button type="submit" :disabled="state.streaming || !state.input.trim()">{{ t('chat.send') }}</Button>

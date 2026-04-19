@@ -25,9 +25,22 @@ class MessageFactory extends Factory
             'conversation_id' => Conversation::factory(),
             'role' => MessageRole::User->value,
             'content' => fake()->paragraph(),
+            'model' => null,
             'prompt_tokens' => null,
             'completion_tokens' => null,
         ];
+    }
+
+    /**
+     * Indicate the model identifier recorded on the message. Assistant
+     * messages store the model that produced the reply; user messages
+     * conventionally leave this NULL.
+     */
+    public function withModel(string $model): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'model' => $model,
+        ]);
     }
 
     /**
