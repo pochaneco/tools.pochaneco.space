@@ -127,6 +127,9 @@ class ChatController extends Controller
 
         $conversation = $this->resolveConversation($user->id, $validated['conversation_id'] ?? null, $validated['message'], $model);
 
+        // Capture the pre-existing history *before* persisting the new user
+        // message so the SDK call receives just the prior turns as context
+        // and the fresh prompt is appended by the agent itself.
         $history = $conversation->messages()
             ->orderBy('created_at')
             ->get()
@@ -139,13 +142,91 @@ class ChatController extends Controller
             'content' => $validated['message'],
         ]);
 
+        return $this->streamAgentResponse(
+            conversation: $conversation,
+            prompt: $validated['message'],
+            history: $history,
+            model: $model,
+            allowTitleDispatch: true,
+        );
+    }
+
+    /**
+     * Delete the latest assistant message and re-stream a reply for the
+     * latest user message in the conversation. The user's input is not
+     * duplicated — we reuse the existing user message as the prompt.
+     */
+    public function regenerate(Request $request): StreamedResponse
+    {
+        $validated = $request->validate([
+            'conversation_id' => ['required', 'integer', 'exists:conversations,id'],
+        ]);
+
+        $conversation = Conversation::findOrFail($validated['conversation_id']);
+        $this->authorize('update', $conversation);
+
+        // Drop the latest assistant reply (if any) so it can be replaced.
+        $lastAssistant = $conversation->messages()
+            ->where('role', MessageRole::Assistant->value)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->first();
+        $lastAssistant?->delete();
+
+        // Find the prompt to replay. If the conversation has no user message
+        // yet there is nothing meaningful to regenerate — bail out clearly.
+        $lastUser = $conversation->messages()
+            ->where('role', MessageRole::User->value)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($lastUser === null) {
+            abort(422, 'No user message to regenerate from.');
+        }
+
+        // History = every remaining message *except* the last user message,
+        // which we pass as the prompt. The SDK appends the prompt to the
+        // context, so including it in history would duplicate the turn.
+        $history = $conversation->messages()
+            ->where('id', '!=', $lastUser->id)
+            ->orderBy('created_at')
+            ->get()
+            ->map(fn (Message $m) => $this->toSdkMessage($m))
+            ->all();
+
+        $model = $conversation->model ?? config('ai.default_chat_model');
+
+        return $this->streamAgentResponse(
+            conversation: $conversation,
+            prompt: $lastUser->content,
+            history: $history,
+            model: $model,
+            allowTitleDispatch: false,
+        );
+    }
+
+    /**
+     * Common SSE streaming pipeline shared by the message and regenerate
+     * endpoints. Persists the final assistant reply on StreamEnd and
+     * optionally dispatches the title-generation job.
+     *
+     * @param  array<int, \Laravel\Ai\Messages\Message>  $history
+     */
+    private function streamAgentResponse(
+        Conversation $conversation,
+        string $prompt,
+        array $history,
+        ?string $model,
+        bool $allowTitleDispatch,
+    ): StreamedResponse {
         $agent = new AnonymousAgent(
             instructions: self::SYSTEM_INSTRUCTIONS,
             messages: $history,
             tools: [],
         );
 
-        $response = new StreamedResponse(function () use ($agent, $validated, $conversation, $model) {
+        $response = new StreamedResponse(function () use ($agent, $prompt, $conversation, $model, $allowTitleDispatch) {
             @ini_set('zlib.output_compression', '0');
             @ini_set('output_buffering', 'off');
             @ini_set('implicit_flush', '1');
@@ -155,7 +236,7 @@ class ChatController extends Controller
             $completionTokens = null;
 
             try {
-                $stream = $agent->stream($validated['message'], model: $model);
+                $stream = $agent->stream($prompt, model: $model);
 
                 foreach ($stream as $event) {
                     if (connection_aborted()) {
@@ -192,7 +273,12 @@ class ChatController extends Controller
                 // reply in a conversation (user + assistant = 2). Subsequent
                 // turns leave the existing title alone, which also protects
                 // titles that the user has renamed manually after the fact.
-                if ($conversation->messages()->count() === 2) {
+                //
+                // Regeneration intentionally skips this dispatch entirely:
+                // the conversation already had a title-worthy first turn at
+                // some earlier point, and regenerating the very first reply
+                // must not overwrite a user-renamed title either.
+                if ($allowTitleDispatch && $conversation->messages()->count() === 2) {
                     GenerateConversationTitle::dispatch($conversation)->afterResponse();
                 }
 

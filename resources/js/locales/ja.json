@@ -166,7 +166,8 @@
         "no_conversations_yet": "新しい会話を始めましょう。",
         "untitled": "無題",
         "open_conversations": "会話一覧を開く",
-        "close_conversations": "会話一覧を閉じる"
+        "close_conversations": "会話一覧を閉じる",
+        "regenerate": "再生成"
     },
     "teams": {
         "title": "チーム",
