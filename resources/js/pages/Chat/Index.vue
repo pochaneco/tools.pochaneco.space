@@ -1,12 +1,15 @@
 <script setup lang="ts">
+import ConversationList, { type ConversationSummary } from '@/components/Chat/ConversationList.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { dashboard } from '@/routes';
 import chatRoutes from '@/routes/chat';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/vue3';
-import { nextTick, onBeforeUnmount, reactive, ref } from 'vue';
+import { Menu } from 'lucide-vue-next';
+import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 const { t } = useI18n();
@@ -16,7 +19,7 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: t('chat.title'), href: chatRoutes.index().url },
 ];
 
-type MessageRole = 'user' | 'assistant';
+type MessageRole = 'user' | 'assistant' | 'system';
 
 type Message = {
     id: string;
@@ -52,7 +55,22 @@ type ChatState = {
     conversationId: number | string | null;
 };
 
+type LoadedMessage = {
+    id: number;
+    role: string;
+    content: string;
+    created_at: string | null;
+};
+
+type LoadedConversation = {
+    id: number;
+    title: string | null;
+    model: string | null;
+    messages: LoadedMessage[];
+};
+
 const CHAT_MESSAGE_ENDPOINT = chatRoutes.message.url();
+const CONVERSATIONS_INDEX_URL = '/chat/conversations';
 
 const state = reactive<ChatState>({
     messages: [],
@@ -62,11 +80,14 @@ const state = reactive<ChatState>({
     conversationId: null,
 });
 
+const conversations = ref<ConversationSummary[]>([]);
+const drawerOpen = ref(false);
+
 let abortController: AbortController | null = null;
 let currentAssistantId: string | null = null;
 const scrollEl = ref<HTMLElement | null>(null);
+const inputRef = ref<InstanceType<typeof Input> | null>(null);
 
-// Simple non-crypto ID generator for prototype use
 function genId(): string {
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -85,7 +106,6 @@ function getCsrfToken(): string | null {
     if (metaToken) {
         return metaToken;
     }
-    // Fallback: Laravel also sets an XSRF-TOKEN cookie (URL-encoded)
     const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
     if (match) {
         try {
@@ -115,13 +135,6 @@ function finalizeAssistant(assistantId: string) {
     }
 }
 
-/**
- * Parse an SSE payload buffer. SSE events are separated by a blank line
- * ("\n\n"). Each event may contain `event:`, `data:`, `id:`, `retry:` lines.
- * We only care about `event` and `data` here.
- *
- * Returns parsed events and the leftover buffer (an incomplete trailing event).
- */
 function parseSseBuffer(buffer: string): { events: ParsedSseEvent[]; rest: string } {
     const events: ParsedSseEvent[] = [];
     let rest = buffer;
@@ -157,7 +170,6 @@ function parseSingleSseEvent(raw: string): ParsedSseEvent | null {
         const colonIndex = line.indexOf(':');
         if (colonIndex === -1) continue;
         const field = line.slice(0, colonIndex);
-        // SSE spec says a single leading space after the colon is stripped.
         let value = line.slice(colonIndex + 1);
         if (value.startsWith(' ')) value = value.slice(1);
 
@@ -173,7 +185,6 @@ function parseSingleSseEvent(raw: string): ParsedSseEvent | null {
 }
 
 function handleSseEvent(assistantId: string, evt: ParsedSseEvent): boolean {
-    // Returns true when the caller should treat this as stream termination.
     if (evt.event === 'done') {
         return true;
     }
@@ -271,16 +282,12 @@ async function streamAssistantReply(userMessage: string, assistantId: string) {
             for (const evt of events) {
                 const shouldStop = handleSseEvent(assistantId, evt);
                 if (shouldStop) {
-                    await reader.cancel().catch(() => {
-                        // ignore
-                    });
+                    await reader.cancel().catch(() => {});
                     return;
                 }
             }
         }
 
-        // Flush any trailing complete event (rare, if stream ended without a
-        // final blank line).
         if (buffer.trim().length > 0) {
             const { events } = parseSseBuffer(buffer + '\n\n');
             for (const evt of events) {
@@ -341,8 +348,124 @@ async function send() {
         state.streaming = false;
         abortController = null;
         currentAssistantId = null;
+        // Refresh the sidebar so the new (or touched) conversation floats up
+        loadConversations();
     }
 }
+
+async function loadConversations() {
+    try {
+        const res = await fetch(CONVERSATIONS_INDEX_URL, {
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        if (!res.ok) return;
+        conversations.value = (await res.json()) as ConversationSummary[];
+    } catch {
+        // Non-fatal; list can retry later.
+    }
+}
+
+function mapDbMessageToUi(m: LoadedMessage): Message {
+    return {
+        id: `db-${m.id}`,
+        text: m.content,
+        ts: m.created_at ?? new Date().toISOString(),
+        role: (m.role as MessageRole) ?? 'user',
+    };
+}
+
+async function selectConversation(id: number) {
+    stopStream();
+    drawerOpen.value = false;
+    state.error = null;
+    try {
+        const res = await fetch(`/chat/conversations/${id}`, {
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        if (!res.ok) {
+            state.error = t('chat.connection_error');
+            return;
+        }
+        const data = (await res.json()) as LoadedConversation;
+        state.messages = data.messages.map(mapDbMessageToUi);
+        state.conversationId = data.id;
+        scrollToBottom();
+    } catch {
+        state.error = t('chat.connection_error');
+    }
+}
+
+async function deleteConversation(id: number) {
+    // Confirm with the browser's native dialog for now. A shadcn AlertDialog
+    // can replace this later without changing semantics.
+    if (!window.confirm(t('chat.delete_confirm'))) {
+        return;
+    }
+    const csrf = getCsrfToken();
+    try {
+        const res = await fetch(`/chat/conversations/${id}`, {
+            method: 'DELETE',
+            credentials: 'same-origin',
+            headers: {
+                Accept: 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                ...(csrf ? { 'X-CSRF-TOKEN': csrf, 'X-XSRF-TOKEN': csrf } : {}),
+            },
+        });
+        if (!res.ok) {
+            state.error = t('chat.connection_error');
+            return;
+        }
+        if (state.conversationId === id) {
+            newChat();
+        }
+        await loadConversations();
+    } catch {
+        state.error = t('chat.connection_error');
+    }
+}
+
+async function renameConversation(id: number, title: string) {
+    const csrf = getCsrfToken();
+    try {
+        const res = await fetch(`/chat/conversations/${id}`, {
+            method: 'PATCH',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                ...(csrf ? { 'X-CSRF-TOKEN': csrf, 'X-XSRF-TOKEN': csrf } : {}),
+            },
+            body: JSON.stringify({ title }),
+        });
+        if (!res.ok) {
+            state.error = t('chat.connection_error');
+            return;
+        }
+        await loadConversations();
+    } catch {
+        state.error = t('chat.connection_error');
+    }
+}
+
+function newChat() {
+    stopStream();
+    state.messages = [];
+    state.conversationId = null;
+    state.error = null;
+    drawerOpen.value = false;
+    nextTick(() => {
+        const el = (inputRef.value as unknown as { $el?: HTMLElement } | null)?.$el as HTMLInputElement | undefined;
+        el?.focus?.();
+    });
+}
+
+onMounted(() => {
+    loadConversations();
+});
 
 onBeforeUnmount(() => {
     if (abortController) {
@@ -356,41 +479,86 @@ onBeforeUnmount(() => {
     <Head :title="t('chat.title')" />
 
     <AppLayout :breadcrumbs="breadcrumbs">
-        <div class="flex h-full min-h-0 flex-1 flex-col gap-4 p-4">
-            <div ref="scrollEl" class="min-h-0 flex-1 overflow-auto rounded-xl border border-sidebar-border/70 p-4 dark:border-sidebar-border">
-                <div class="flex flex-col gap-3">
-                    <div v-if="state.messages.length === 0" class="self-center text-xs opacity-70">
-                        {{ t('chat.no_messages') }}
-                    </div>
-                    <div
-                        v-for="m in state.messages"
-                        :key="m.id"
-                        class="max-w-[80%] rounded-md px-3 py-2 text-sm"
-                        :class="m.role === 'user' ? 'self-end bg-primary/10' : 'self-start bg-muted'"
-                    >
-                        <div class="text-xs opacity-70">
-                            {{ new Date(m.ts).toLocaleTimeString() }} ·
-                            {{ m.role === 'user' ? t('chat.user') : t('chat.assistant') }}
-                        </div>
-                        <div class="whitespace-pre-wrap">
-                            <template v-if="m.text.length > 0">{{ m.text }}</template>
-                            <span v-if="m.streaming" class="chat-cursor" aria-hidden="true">&#9608;</span>
-                        </div>
-                    </div>
-                    <div v-if="state.streaming" class="self-start text-xs opacity-70">
-                        {{ t('chat.streaming') }}
-                    </div>
-                    <div v-if="state.error" class="self-start text-xs text-red-600">{{ state.error }}</div>
-                </div>
-            </div>
+        <div class="flex h-full min-h-0 flex-1">
+            <!-- Desktop sidebar -->
+            <aside class="hidden w-72 shrink-0 flex-col border-r md:flex">
+                <ConversationList
+                    :conversations="conversations"
+                    :active-id="typeof state.conversationId === 'number' ? state.conversationId : null"
+                    @select="selectConversation"
+                    @rename="renameConversation"
+                    @delete="deleteConversation"
+                    @new="newChat"
+                />
+            </aside>
 
-            <form class="flex gap-2" @submit.prevent="send">
-                <Input v-model="state.input" :placeholder="t('chat.input_placeholder')" class="flex-1" :disabled="state.streaming" />
-                <Button type="submit" :disabled="state.streaming || !state.input.trim()">{{ t('chat.send') }}</Button>
-                <Button type="button" variant="secondary" @click="stopStream" :disabled="!state.streaming">
-                    {{ t('chat.stop') }}
-                </Button>
-            </form>
+            <!-- Main chat pane -->
+            <main class="flex min-h-0 flex-1 flex-col gap-4 p-4">
+                <div class="flex items-center gap-2 md:hidden">
+                    <Sheet v-model:open="drawerOpen">
+                        <SheetTrigger as-child>
+                            <Button variant="ghost" size="icon" :aria-label="t('chat.open_conversations')">
+                                <Menu class="size-4" />
+                            </Button>
+                        </SheetTrigger>
+                        <SheetContent side="left" class="w-80 p-0 sm:max-w-sm">
+                            <SheetHeader class="sr-only">
+                                <SheetTitle>{{ t('chat.conversation_list') }}</SheetTitle>
+                            </SheetHeader>
+                            <ConversationList
+                                :conversations="conversations"
+                                :active-id="typeof state.conversationId === 'number' ? state.conversationId : null"
+                                @select="selectConversation"
+                                @rename="renameConversation"
+                                @delete="deleteConversation"
+                                @new="newChat"
+                            />
+                        </SheetContent>
+                    </Sheet>
+                    <span class="text-sm font-medium">{{ t('chat.conversation_list') }}</span>
+                </div>
+
+                <div ref="scrollEl" class="min-h-0 flex-1 overflow-auto rounded-xl border border-sidebar-border/70 p-4 dark:border-sidebar-border">
+                    <div class="flex flex-col gap-3">
+                        <div v-if="state.messages.length === 0" class="self-center text-xs opacity-70">
+                            {{ t('chat.no_messages') }}
+                        </div>
+                        <div
+                            v-for="m in state.messages"
+                            :key="m.id"
+                            class="max-w-[80%] rounded-md px-3 py-2 text-sm"
+                            :class="m.role === 'user' ? 'self-end bg-primary/10' : 'self-start bg-muted'"
+                        >
+                            <div class="text-xs opacity-70">
+                                {{ new Date(m.ts).toLocaleTimeString() }} ·
+                                {{ m.role === 'user' ? t('chat.user') : t('chat.assistant') }}
+                            </div>
+                            <div class="whitespace-pre-wrap">
+                                <template v-if="m.text.length > 0">{{ m.text }}</template>
+                                <span v-if="m.streaming" class="chat-cursor" aria-hidden="true">&#9608;</span>
+                            </div>
+                        </div>
+                        <div v-if="state.streaming" class="self-start text-xs opacity-70">
+                            {{ t('chat.streaming') }}
+                        </div>
+                        <div v-if="state.error" class="self-start text-xs text-red-600">{{ state.error }}</div>
+                    </div>
+                </div>
+
+                <form class="flex gap-2" @submit.prevent="send">
+                    <Input
+                        ref="inputRef"
+                        v-model="state.input"
+                        :placeholder="t('chat.input_placeholder')"
+                        class="flex-1"
+                        :disabled="state.streaming"
+                    />
+                    <Button type="submit" :disabled="state.streaming || !state.input.trim()">{{ t('chat.send') }}</Button>
+                    <Button type="button" variant="secondary" @click="stopStream" :disabled="!state.streaming">
+                        {{ t('chat.stop') }}
+                    </Button>
+                </form>
+            </main>
         </div>
     </AppLayout>
 </template>
