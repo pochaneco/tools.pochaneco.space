@@ -72,7 +72,13 @@ php vendor/bin/dep env:push
 
 (環境変数 `DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_PATH` を事前に設定しておくこと)
 
-このタスクは `.env.production` を `<deploy_path>/shared/.env` にアップロードし、`chmod 600` する。**本番 API キー等を変更した後は `env:push` → `deploy` の順で実行**。
+このタスクは以下を行う:
+
+1. `.env.production` を `<deploy_path>/shared/.env` にアップロード
+2. パーミッションを `chmod 600` にする
+3. **`current` リリースの config cache を再生成** (`artisan config:clear && config:cache`)
+
+Laravel は deploy 時に `bootstrap/cache/config.php` へ env 値を焼き込むため、cache 再生成なしでは .env の更新が反映されない。`env:push` 単独で安全に完結するよう組み込み済み (再 deploy なしで反映される)。
 
 ## ロールバック
 
@@ -87,6 +93,21 @@ php vendor/bin/dep rollback
 `current` symlink が一つ前の `releases/<N-1>` を指し直す。マイグレーションは自動ロールバックされないので、スキーマ変更が絡む場合は手動で `artisan migrate:rollback` も必要。
 
 ## トラブルシューティング
+
+### 本番で `AI provider error` / 認証系 401 が返る
+
+`env:push` を以前のバージョン (config cache 再生成なし) で実行した場合、`shared/.env` の新しい値が `bootstrap/cache/config.php` に反映されず、アプリが古い (または null の) 値で外部 API を叩く状態になる。症状:
+
+- `storage/logs/laravel.log` に `HTTP request returned status code 401`
+- `shared/.env` の md5 と local `.env.production` が一致しているのに本番だけ認証失敗
+
+対処:
+
+```bash
+ssh <server> "cd <deploy_path>/current && php artisan config:clear && php artisan config:cache"
+```
+
+現行 `env:push` は自動で上記を実行するので、新規に遭遇することはない。過去の残骸を掃除する時のみ参考にする。
 
 ### `assets:build` で `npm ci` が `EACCES` で失敗
 
