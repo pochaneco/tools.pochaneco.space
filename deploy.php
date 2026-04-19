@@ -58,6 +58,16 @@ task('env:push', function (): void {
     upload($local, '{{deploy_path}}/shared/.env');
     run('chmod 600 {{deploy_path}}/shared/.env');
     writeln('<info>Uploaded env file to {{deploy_path}}/shared/.env</info>');
+
+    // Refresh the active release's config cache so new env values take effect.
+    // Without this, bootstrap/cache/config.php keeps stale values from the last deploy
+    // and the running app still reads old credentials (e.g. 401 from upstream APIs).
+    if (test('[ -L {{deploy_path}}/current ]')) {
+        run('cd {{deploy_path}}/current && {{bin/php}} artisan config:clear && {{bin/php}} artisan config:cache');
+        writeln('<info>Rebuilt config cache on active release.</info>');
+    } else {
+        writeln('<comment>No active release (current symlink missing); skipping config:cache refresh.</comment>');
+    }
 });
 
 // Warn (or fail) if current branch is not the expected one
