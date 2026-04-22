@@ -223,9 +223,13 @@ class ChatController extends Controller
             ?? config('ai.default_chat_model');
 
         // Resolve the conversation's team. For existing conversations we
-        // keep whatever team they were bound to at creation; for new
-        // conversations we accept a team_id only if the user is actually a
-        // member (fall back to null, which disables the RAG tool).
+        // keep whatever team they were bound to at creation. For new
+        // conversations: if the caller supplied a team they belong to we
+        // use it; if they supplied a team they do NOT belong to we
+        // downgrade to null (no RAG tool rather than silently pivoting
+        // to another team they didn't ask for); if they didn't supply a
+        // team at all we fall back to their first membership so the
+        // default UX still gets RAG turned on.
         $teamId = $existingConversation?->team_id ?? $this->resolveTeamId($user, $validated['team_id'] ?? null);
 
         $conversation = $existingConversation
@@ -456,17 +460,23 @@ class ChatController extends Controller
     }
 
     /**
-     * Pick a team_id for a new conversation. Returns null (no tool access)
-     * when the user either didn't supply a team or supplied one they
-     * don't belong to — silent downgrade is the right default here so a
-     * stale team selection never blocks chat.
+     * Pick a team_id for a new conversation. Three-way semantics:
+     *
+     *   - $requested === null/''   → fall back to the user's first team
+     *                                so out-of-the-box chats get RAG.
+     *                                `EnsureUserHasDefaultTeam` guarantees
+     *                                at least one membership exists.
+     *   - member of $requested      → use it.
+     *   - non-member of $requested  → return null (RAG disabled). We
+     *                                 intentionally do NOT fall back to
+     *                                 a different team the user didn't
+     *                                 ask for — switching scopes silently
+     *                                 would be more surprising than just
+     *                                 turning the tool off.
      */
     private function resolveTeamId(User $user, ?string $requested): ?string
     {
         if ($requested === null || $requested === '') {
-            // Default to the user's first team so the RAG tool is
-            // available out of the box — `EnsureUserHasDefaultTeam`
-            // guarantees membership in at least one team.
             return $user->teams()->orderBy('teams.name')->value('teams.id');
         }
 

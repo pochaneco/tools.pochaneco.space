@@ -154,3 +154,58 @@ describe('indexer pipeline', function () {
         expect($k->fresh()->indexed_at)->toBeNull();
     });
 });
+
+describe('late-job safety', function () {
+    it('clears instead of re-indexing when the entry is no longer published at job time', function () {
+        Embeddings::fake();
+
+        $k = TeamKnowledge::factory()
+            ->forTeam($this->team)
+            ->published()
+            ->state(['author_id' => $this->owner->id, 'body' => '# Live'])
+            ->create();
+
+        // Simulate prior indexing state.
+        TeamKnowledgeChunk::factory()->count(2)->create([
+            'knowledge_id' => $k->id,
+            'team_id' => $this->team->id,
+        ]);
+        $k->forceFill(['indexed_at' => now()])->saveQuietly();
+
+        // Demote *without* going through the observer — the scenario
+        // we're protecting against is a stale job firing after a
+        // retraction that has already happened elsewhere.
+        $k->forceFill(['status' => KnowledgeStatus::Archived])->saveQuietly();
+
+        (new IndexTeamKnowledge($k))->handle(app(KnowledgeIndexer::class));
+
+        expect(TeamKnowledgeChunk::where('knowledge_id', $k->id)->count())->toBe(0);
+    });
+});
+
+describe('published body emptied', function () {
+    it('synchronously clears chunks when a published entry loses its body', function () {
+        Embeddings::fake();
+
+        $k = TeamKnowledge::factory()
+            ->forTeam($this->team)
+            ->published()
+            ->state(['author_id' => $this->owner->id, 'body' => '# Live'])
+            ->create();
+
+        // Run the indexer once so we have real chunks on disk.
+        app(KnowledgeIndexer::class)->reindex($k);
+        expect(TeamKnowledgeChunk::where('knowledge_id', $k->id)->count())->toBeGreaterThan(0);
+
+        // Now blank out the body while leaving the status at Published.
+        // The observer should notice the empty body and clear chunks
+        // synchronously — without queuing a no-op indexing job.
+        Queue::fake();
+        $k->body = "   \n\n  ";
+        $k->save();
+
+        expect(TeamKnowledgeChunk::where('knowledge_id', $k->id)->count())->toBe(0);
+        expect($k->fresh()->indexed_at)->toBeNull();
+        Queue::assertNothingPushed();
+    });
+});

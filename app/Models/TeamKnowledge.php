@@ -17,6 +17,11 @@ class TeamKnowledge extends Model
 
     use SoftDeletes;
 
+    // "knowledge" is an uncountable noun in English, so Laravel's
+    // inflector leaves it unpluralised (`team_knowledge`). Pin the real
+    // table name explicitly to avoid that surprise.
+    protected $table = 'team_knowledges';
+
     protected $fillable = [
         'team_id',
         'author_id',

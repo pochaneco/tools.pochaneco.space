@@ -12,6 +12,11 @@ class TeamKnowledgeChunk extends Model
     /** @use HasFactory<TeamKnowledgeChunkFactory> */
     use HasFactory;
 
+    // Pin the table explicitly so the uncountable-noun pluralisation
+    // quirk on `knowledge` can't surprise us the way it did on the
+    // parent model.
+    protected $table = 'team_knowledge_chunks';
+
     protected $fillable = [
         'knowledge_id',
         'team_id',

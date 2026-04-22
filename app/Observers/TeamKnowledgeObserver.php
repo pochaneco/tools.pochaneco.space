@@ -34,6 +34,17 @@ class TeamKnowledgeObserver
         $bodyChanged = $knowledge->wasChanged('body');
 
         if ($status === KnowledgeStatus::Published) {
+            // Special case: the entry is nominally published but has no
+            // body to index. We clear synchronously instead of queuing
+            // an indexing job so there's no window where stale chunks
+            // from the previous body remain discoverable via the RAG
+            // tool while we wait for the worker to notice the emptiness.
+            if (trim((string) $knowledge->body) === '') {
+                $this->indexer->clear($knowledge);
+
+                return;
+            }
+
             if ($bodyChanged || $statusChanged || $knowledge->indexed_at === null) {
                 IndexTeamKnowledge::dispatch($knowledge)->afterResponse();
             }

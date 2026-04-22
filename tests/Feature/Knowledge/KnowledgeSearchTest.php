@@ -10,8 +10,7 @@ use App\Models\TeamKnowledge;
 use App\Models\TeamKnowledgeChunk;
 use App\Models\User;
 use App\Services\Knowledge\KnowledgeSearchService;
-use Illuminate\Contracts\JsonSchema\JsonSchema;
-use Illuminate\Http\Request;
+use Illuminate\JsonSchema\JsonSchemaTypeFactory;
 use Laravel\Ai\Embeddings;
 use Laravel\Ai\Tools\Request as ToolRequest;
 
@@ -98,6 +97,24 @@ describe('KnowledgeSearchService', function () {
 
         expect($hits)->toBeEmpty();
     });
+
+    it('excludes chunks whose parent entry is not published', function () {
+        fakeEmbeddingsWithVector([1.0, 0.0, 0.0]);
+
+        // Published parent — should be returned.
+        $kPub = TeamKnowledge::factory()->published()->forTeam($this->team)->create(['title' => 'PubDoc']);
+        chunkWithVector($this->team, $kPub, 0, [1.0, 0.0, 0.0], 'ok');
+
+        // Draft parent (chunks shouldn't normally exist but simulate a
+        // partial DB state where the observer's clear hasn't landed).
+        $kDraft = TeamKnowledge::factory()->forTeam($this->team)->create(['title' => 'DraftDoc']);
+        chunkWithVector($this->team, $kDraft, 0, [1.0, 0.0, 0.0], 'should not surface');
+
+        $hits = app(KnowledgeSearchService::class)->search($this->team, 'q', 5);
+
+        expect($hits)->toHaveCount(1);
+        expect($hits[0]['title'])->toBe('PubDoc');
+    });
 });
 
 describe('SearchTeamKnowledgeTool', function () {
@@ -136,7 +153,9 @@ describe('SearchTeamKnowledgeTool', function () {
     it('publishes a JSON schema that declares the query parameter', function () {
         $tool = new SearchTeamKnowledgeTool(app(KnowledgeSearchService::class), $this->team);
 
-        $schema = $tool->schema(app(JsonSchema::class));
+        // The contract isn't directly instantiable — use the concrete
+        // factory the framework ships with.
+        $schema = $tool->schema(new JsonSchemaTypeFactory);
 
         expect($schema)->toHaveKey('query');
     });
@@ -183,8 +202,7 @@ describe('ChatController team_id wiring', function () {
         expect($conv->team_id)->toBe($this->team->id);
     })->skip('Requires a fake chat text provider; covered at unit level in ChatToolFactory test.');
 
-    it('silently drops unauthorised team_id and falls back to a default', function () {
-        $req = new Request;
+    it('downgrades to null (no RAG) when an unauthorised team_id is supplied', function () {
         $controller = app(ChatController::class);
 
         // Access the private method via reflection — this is a white-box
@@ -195,9 +213,31 @@ describe('ChatController team_id wiring', function () {
         $other = Team::factory()->create();
         $result = $rm->invoke($controller, $this->owner, $other->id);
 
-        // The owner is not a member of $other; we should fall back to
-        // their first team rather than attaching the unauthorised id.
-        expect($result)->not->toBe($other->id);
+        // The owner is not a member of $other — we must not silently
+        // pivot to a different team they didn't ask for, so null (RAG
+        // disabled) is the correct downgrade.
+        expect($result)->toBeNull();
+    });
+
+    it('falls back to the first membership when no team_id is supplied', function () {
+        $controller = app(ChatController::class);
+
+        $rm = new ReflectionMethod($controller, 'resolveTeamId');
+        $rm->setAccessible(true);
+
+        $result = $rm->invoke($controller, $this->owner, null);
+
+        expect($result)->toBe($this->team->id);
+    });
+
+    it('keeps the team_id when the user is a member', function () {
+        $controller = app(ChatController::class);
+
+        $rm = new ReflectionMethod($controller, 'resolveTeamId');
+        $rm->setAccessible(true);
+
+        $result = $rm->invoke($controller, $this->owner, $this->team->id);
+
         expect($result)->toBe($this->team->id);
     });
 });
