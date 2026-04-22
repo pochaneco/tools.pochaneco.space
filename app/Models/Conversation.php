@@ -15,6 +15,7 @@ class Conversation extends Model
 
     protected $fillable = [
         'user_id',
+        'team_id',
         'title',
         'model',
     ];
@@ -25,6 +26,16 @@ class Conversation extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Team whose knowledge base this conversation can search via the RAG
+     * tool. Nullable so conversations created before the team-knowledge
+     * feature still function (they simply have no tools available).
+     */
+    public function team(): BelongsTo
+    {
+        return $this->belongsTo(Team::class);
     }
 
     /**

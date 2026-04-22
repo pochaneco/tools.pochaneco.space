@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use App\Listeners\EnsureUserHasDefaultTeam;
+use App\Models\TeamKnowledge;
+use App\Observers\TeamKnowledgeObserver;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
@@ -32,5 +34,10 @@ class AppServiceProvider extends ServiceProvider
             Login::class,
             EnsureUserHasDefaultTeam::class,
         );
+
+        // Keep the chunk/embedding index in sync with the knowledge entry's
+        // published state. Handled via observer so the indexing pipeline
+        // stays out of the controller flow.
+        TeamKnowledge::observe(TeamKnowledgeObserver::class);
     }
 }

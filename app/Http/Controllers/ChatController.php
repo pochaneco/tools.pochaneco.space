@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Ai\ChatToolFactory;
 use App\Ai\HistoryTruncator;
 use App\Enums\MessageRole;
 use App\Jobs\GenerateConversationTitle;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\User;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,17 +27,42 @@ class ChatController extends Controller
 {
     use AuthorizesRequests;
 
-    private const SYSTEM_INSTRUCTIONS = 'You are a helpful AI assistant. Respond in the same language as the user.';
+    private const SYSTEM_INSTRUCTIONS = 'You are a helpful AI assistant. Respond in the same language as the user. '
+        .'When the user asks about team-specific documentation, runbooks, policies, or internal decisions, call the '
+        .'`search_team_knowledge` tool (if available) before answering, and cite the titles you used.';
+
+    public function __construct(
+        private readonly ChatToolFactory $chatToolFactory,
+    ) {}
 
     private const TITLE_MAX_LEN = 60;
 
     private const CONVERSATION_LIST_LIMIT = 100;
 
-    public function index(): \Inertia\Response
+    public function index(Request $request): \Inertia\Response
     {
+        $user = $request->user();
+
+        $teams = $user->teams()
+            ->select('teams.id', 'teams.name')
+            ->orderBy('teams.name')
+            ->get()
+            ->map(fn ($team) => [
+                'id' => $team->id,
+                'name' => $team->name,
+            ])
+            ->all();
+
+        // Default to the first team the user belongs to. EnsureUserHasDefaultTeam
+        // guarantees every authenticated user has at least one team by the
+        // time they reach the chat page, but keep the null guard for robustness.
+        $defaultTeamId = $teams[0]['id'] ?? null;
+
         return Inertia::render('Chat/Index', [
             'availableModels' => $this->availableModelsForFront(),
             'defaultModel' => config('ai.default_chat_model'),
+            'availableTeams' => $teams,
+            'defaultTeamId' => $defaultTeamId,
         ]);
     }
 
@@ -82,6 +109,7 @@ class ChatController extends Controller
                     'id' => $c->id,
                     'title' => $c->title,
                     'model' => $c->model,
+                    'team_id' => $c->team_id,
                     'updated_at' => optional($c->updated_at)->toIso8601String(),
                     'messages_count' => (int) $c->messages_count,
                     // Expose only the cumulative total in the list payload.
@@ -119,6 +147,7 @@ class ChatController extends Controller
             'id' => $conversation->id,
             'title' => $conversation->title,
             'model' => $conversation->model,
+            'team_id' => $conversation->team_id,
             'updated_at' => optional($conversation->updated_at)->toIso8601String(),
             'messages' => $conversation->messages->map(fn (Message $m) => [
                 'id' => $m->id,
@@ -170,13 +199,17 @@ class ChatController extends Controller
 
     public function message(Request $request): StreamedResponse
     {
+        $user = $request->user();
+
         $validated = $request->validate([
             'message' => ['required', 'string', 'max:8000'],
             'conversation_id' => ['nullable', 'integer', 'exists:conversations,id'],
             'model' => ['nullable', 'string', Rule::in(array_keys(config('ai.chat_models', [])))],
+            // team_id is a ULID — accept any string the user's team list
+            // actually contains. The membership lookup below is what enforces
+            // authorisation; validation only stops obvious garbage.
+            'team_id' => ['nullable', 'string', 'max:40'],
         ]);
-
-        $user = $request->user();
 
         // Load (or create) the conversation first so we can honor its stored
         // default model when the caller didn't pick one for this turn.
@@ -189,9 +222,16 @@ class ChatController extends Controller
             ?? $existingConversation?->model
             ?? config('ai.default_chat_model');
 
+        // Resolve the conversation's team. For existing conversations we
+        // keep whatever team they were bound to at creation; for new
+        // conversations we accept a team_id only if the user is actually a
+        // member (fall back to null, which disables the RAG tool).
+        $teamId = $existingConversation?->team_id ?? $this->resolveTeamId($user, $validated['team_id'] ?? null);
+
         $conversation = $existingConversation
             ?? DB::transaction(fn () => Conversation::create([
                 'user_id' => $user->id,
+                'team_id' => $teamId,
                 'title' => Str::limit(trim($validated['message']), self::TITLE_MAX_LEN, ''),
                 'model' => $model,
             ]));
@@ -305,10 +345,12 @@ class ChatController extends Controller
             systemPrompt: self::SYSTEM_INSTRUCTIONS,
         );
 
+        $tools = $this->chatToolFactory->forConversation($conversation);
+
         $agent = new AnonymousAgent(
             instructions: self::SYSTEM_INSTRUCTIONS,
             messages: $truncation->keptMessages,
-            tools: [],
+            tools: $tools,
         );
 
         $response = new StreamedResponse(function () use ($agent, $prompt, $conversation, $model, $allowTitleDispatch, $truncation) {
@@ -411,6 +453,26 @@ class ChatController extends Controller
         echo 'data: '.json_encode($payload, JSON_UNESCAPED_UNICODE)."\n\n";
         @ob_flush();
         @flush();
+    }
+
+    /**
+     * Pick a team_id for a new conversation. Returns null (no tool access)
+     * when the user either didn't supply a team or supplied one they
+     * don't belong to — silent downgrade is the right default here so a
+     * stale team selection never blocks chat.
+     */
+    private function resolveTeamId(User $user, ?string $requested): ?string
+    {
+        if ($requested === null || $requested === '') {
+            // Default to the user's first team so the RAG tool is
+            // available out of the box — `EnsureUserHasDefaultTeam`
+            // guarantees membership in at least one team.
+            return $user->teams()->orderBy('teams.name')->value('teams.id');
+        }
+
+        $isMember = $user->teams()->whereKey($requested)->exists();
+
+        return $isMember ? $requested : null;
     }
 
     /**
