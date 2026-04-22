@@ -239,7 +239,14 @@ class TeamKnowledgeController extends Controller
         $attempt = 0;
 
         while (true) {
+            // Include soft-deleted rows: the `unique(team_id, slug)`
+            // constraint in the migration does NOT carve out `deleted_at`,
+            // so a previously-deleted entry with the same slug would
+            // still blow up the INSERT with a duplicate-key error. Check
+            // against the full history to keep collision detection
+            // consistent with the database-level constraint.
             $exists = TeamKnowledge::query()
+                ->withTrashed()
                 ->where('team_id', $team->id)
                 ->where('slug', $candidate)
                 ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))

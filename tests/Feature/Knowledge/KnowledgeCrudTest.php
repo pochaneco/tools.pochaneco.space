@@ -110,6 +110,32 @@ describe('create', function () {
         expect($slugs)->toHaveCount(2);
         expect($slugs->unique()->count())->toBe(2);
     });
+
+    it('avoids slug collisions with soft-deleted entries', function () {
+        // The unique constraint on (team_id, slug) in the migration does
+        // not carve out `deleted_at`, so slug generation must treat a
+        // soft-deleted row as occupying the slug too. Otherwise the
+        // second create would hit a duplicate-key error at INSERT time.
+        $deleted = TeamKnowledge::factory()->forTeam($this->team)->create([
+            'title' => 'Unique Topic',
+            'slug' => 'unique-topic',
+        ]);
+        $deleted->delete();
+
+        $response = $this->actingAs($this->member)
+            ->post("/teams/{$this->team->id}/knowledges", [
+                'title' => 'Unique Topic',
+                'body' => '# Reborn',
+                'status' => KnowledgeStatus::Draft->value,
+            ]);
+
+        $response->assertRedirect();
+
+        $live = TeamKnowledge::where('team_id', $this->team->id)
+            ->where('title', 'Unique Topic')
+            ->first();
+        expect($live->slug)->not->toBe('unique-topic');
+    });
 });
 
 describe('update', function () {

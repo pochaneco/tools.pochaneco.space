@@ -125,6 +125,30 @@ describe('KnowledgeSearchService', function () {
         expect($hits)->toHaveCount(1);
         expect($hits[0]['title'])->toBe('PubDoc');
     });
+
+    it('excludes chunks whose embedding dimensions differ from the query', function () {
+        // Query vector has 3 dims; the stored chunk has 2 dims. Even
+        // under the same model name, a mismatched dim count means
+        // cosine would be misleading — the DB filter must drop it.
+        fakeEmbeddingsWithVector([1.0, 0.0, 0.0]);
+
+        $k = TeamKnowledge::factory()->published()->forTeam($this->team)->create();
+        chunkWithVector($this->team, $k, 0, [1.0, 0.0]);
+
+        $hits = app(KnowledgeSearchService::class)->search($this->team, 'q', 5);
+
+        expect($hits)->toBeEmpty();
+    });
+
+    it('returns nothing when the caller asks for zero or negative results', function () {
+        fakeEmbeddingsWithVector([1.0, 0.0]);
+
+        $k = TeamKnowledge::factory()->published()->forTeam($this->team)->create();
+        chunkWithVector($this->team, $k, 0, [1.0, 0.0]);
+
+        expect(app(KnowledgeSearchService::class)->search($this->team, 'q', 0))->toBeEmpty();
+        expect(app(KnowledgeSearchService::class)->search($this->team, 'q', -5))->toBeEmpty();
+    });
 });
 
 describe('SearchTeamKnowledgeTool', function () {

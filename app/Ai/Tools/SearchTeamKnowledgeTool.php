@@ -42,7 +42,15 @@ class SearchTeamKnowledgeTool implements Tool
         }
 
         $limit = $request->integer('limit', self::DEFAULT_LIMIT);
-        $limit = max(1, min(self::MAX_LIMIT, $limit));
+
+        // `limit <= 0` is a caller asking for nothing. Return the same
+        // not-found sentinel rather than silently clamping to 1 — the
+        // tool's public contract should honour the argument's intent.
+        if ($limit <= 0) {
+            return 'No relevant knowledge found.';
+        }
+
+        $limit = min(self::MAX_LIMIT, $limit);
 
         $hits = $this->search->search($this->team, $query, $limit);
 
