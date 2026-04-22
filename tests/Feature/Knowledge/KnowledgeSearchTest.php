@@ -11,13 +11,16 @@ use App\Models\TeamKnowledgeChunk;
 use App\Models\User;
 use App\Services\Knowledge\KnowledgeSearchService;
 use Illuminate\JsonSchema\JsonSchemaTypeFactory;
+use Illuminate\Support\Facades\Queue;
 use Laravel\Ai\Embeddings;
 use Laravel\Ai\Tools\Request as ToolRequest;
 
 beforeEach(function () {
-    // Observer-triggered reindexing may run synchronously on the sync
-    // queue driver during factory->create() for published entries; fake
-    // embeddings so that path doesn't attempt real network I/O.
+    // We seed chunks by hand in these tests to control the embedding
+    // vectors exactly; muting the queue prevents the observer from
+    // *also* reindexing published entries in the background, which
+    // would otherwise double the chunk counts the assertions check.
+    Queue::fake();
     Embeddings::fake();
 
     $this->owner = User::factory()->create();

@@ -12,10 +12,14 @@ use Illuminate\Support\Facades\Queue;
 use Laravel\Ai\Embeddings;
 
 beforeEach(function () {
-    // Fake embeddings globally so any observer-triggered reindex that
-    // runs synchronously (sync queue driver) doesn't reach out to a
-    // real provider. Individual tests can still override the fake with
-    // deterministic vectors via a Closure.
+    // Mute the queue globally. Tests that explicitly assert on job
+    // dispatch call `Queue::fake()` again locally (it's idempotent and
+    // just resets the tracked push list). Without this the observer
+    // would reindex published factory rows via the sync driver,
+    // creating chunks the test didn't ask for.
+    Queue::fake();
+    // Fake embeddings too: some tests call `reindex()` directly, which
+    // runs inline regardless of the queue driver.
     Embeddings::fake();
 
     $this->owner = User::factory()->create();
