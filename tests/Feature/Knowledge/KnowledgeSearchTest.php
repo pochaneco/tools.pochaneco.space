@@ -15,6 +15,11 @@ use Laravel\Ai\Embeddings;
 use Laravel\Ai\Tools\Request as ToolRequest;
 
 beforeEach(function () {
+    // Observer-triggered reindexing may run synchronously on the sync
+    // queue driver during factory->create() for published entries; fake
+    // embeddings so that path doesn't attempt real network I/O.
+    Embeddings::fake();
+
     $this->owner = User::factory()->create();
     $this->team = Team::factory()->ownedBy($this->owner)->create();
     $this->team->members()->attach($this->owner->id, ['role' => TeamRole::OWNER->value]);
@@ -58,8 +63,10 @@ describe('KnowledgeSearchService', function () {
     it('returns team-scoped results ranked by cosine similarity', function () {
         fakeEmbeddingsWithVector([1.0, 0.0, 0.0]);
 
-        $kA = TeamKnowledge::factory()->forTeam($this->team)->create(['title' => 'Aligned']);
-        $kB = TeamKnowledge::factory()->forTeam($this->team)->create(['title' => 'Orthogonal']);
+        // Parents must be published — the search service joins on the
+        // parent's status so draft/archived chunks cannot surface.
+        $kA = TeamKnowledge::factory()->published()->forTeam($this->team)->create(['title' => 'Aligned']);
+        $kB = TeamKnowledge::factory()->published()->forTeam($this->team)->create(['title' => 'Orthogonal']);
 
         chunkWithVector($this->team, $kA, 0, [1.0, 0.0, 0.0], 'match');
         chunkWithVector($this->team, $kB, 0, [0.0, 1.0, 0.0], 'miss');
@@ -74,8 +81,8 @@ describe('KnowledgeSearchService', function () {
     it('ignores chunks from other teams', function () {
         fakeEmbeddingsWithVector([1.0, 0.0, 0.0]);
 
-        $mine = TeamKnowledge::factory()->forTeam($this->team)->create(['title' => 'Mine']);
-        $theirs = TeamKnowledge::factory()->forTeam($this->otherTeam)->create(['title' => 'Theirs']);
+        $mine = TeamKnowledge::factory()->published()->forTeam($this->team)->create(['title' => 'Mine']);
+        $theirs = TeamKnowledge::factory()->published()->forTeam($this->otherTeam)->create(['title' => 'Theirs']);
 
         chunkWithVector($this->team, $mine, 0, [1.0, 0.0, 0.0]);
         chunkWithVector($this->otherTeam, $theirs, 0, [1.0, 0.0, 0.0]);
@@ -89,7 +96,7 @@ describe('KnowledgeSearchService', function () {
     it('ignores chunks stored by a different embedding model', function () {
         fakeEmbeddingsWithVector([1.0, 0.0, 0.0]);
 
-        $k = TeamKnowledge::factory()->forTeam($this->team)->create();
+        $k = TeamKnowledge::factory()->published()->forTeam($this->team)->create();
         $c = chunkWithVector($this->team, $k, 0, [1.0, 0.0, 0.0]);
         $c->update(['embedding_model' => 'older-model']);
 
@@ -135,7 +142,7 @@ describe('SearchTeamKnowledgeTool', function () {
     it('serialises hits as JSON with titles and headings', function () {
         fakeEmbeddingsWithVector([1.0, 0.0]);
 
-        $k = TeamKnowledge::factory()->forTeam($this->team)->create(['title' => 'Runbook']);
+        $k = TeamKnowledge::factory()->published()->forTeam($this->team)->create(['title' => 'Runbook']);
         chunkWithVector($this->team, $k, 0, [1.0, 0.0], 'deploy steps');
 
         $tool = new SearchTeamKnowledgeTool(app(KnowledgeSearchService::class), $this->team);

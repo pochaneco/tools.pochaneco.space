@@ -12,6 +12,12 @@ use Illuminate\Support\Facades\Queue;
 use Laravel\Ai\Embeddings;
 
 beforeEach(function () {
+    // Fake embeddings globally so any observer-triggered reindex that
+    // runs synchronously (sync queue driver) doesn't reach out to a
+    // real provider. Individual tests can still override the fake with
+    // deterministic vectors via a Closure.
+    Embeddings::fake();
+
     $this->owner = User::factory()->create();
     $this->team = Team::factory()->ownedBy($this->owner)->create();
     $this->team->members()->attach($this->owner->id, ['role' => TeamRole::OWNER->value]);

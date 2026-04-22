@@ -5,8 +5,14 @@ use App\Enums\TeamRole;
 use App\Models\Team;
 use App\Models\TeamKnowledge;
 use App\Models\User;
+use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
+    // Indexing is intentionally async in production — muting the queue
+    // here keeps CRUD tests focused on HTTP behaviour (they otherwise
+    // detonate on outbound embeddings calls via the observer).
+    Queue::fake();
+
     $this->owner = User::factory()->create();
     $this->member = User::factory()->create();
     $this->outsider = User::factory()->create();

@@ -46,7 +46,13 @@ class TeamKnowledgeObserver
             }
 
             if ($bodyChanged || $statusChanged || $knowledge->indexed_at === null) {
-                IndexTeamKnowledge::dispatch($knowledge)->afterResponse();
+                // Dispatch normally (not `afterResponse`) so non-HTTP
+                // callers like Tinker / Artisan / Pest tests also get
+                // the job enqueued. With the `database` queue driver
+                // the worker picks it up asynchronously anyway, so the
+                // response-timing cost of dropping `afterResponse` is
+                // negligible.
+                IndexTeamKnowledge::dispatch($knowledge);
             }
 
             return;
