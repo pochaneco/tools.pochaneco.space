@@ -15,9 +15,16 @@ import { AlertCircle, Menu, RefreshCcw } from 'lucide-vue-next';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 
+type TeamOption = {
+    id: string;
+    name: string;
+};
+
 const props = defineProps<{
     availableModels: ModelMap;
     defaultModel: string;
+    availableTeams: TeamOption[];
+    defaultTeamId: string | null;
 }>();
 
 const { t } = useI18n();
@@ -74,6 +81,10 @@ type ChatState = {
     error: string | null;
     conversationId: number | string | null;
     currentModel: string;
+    // Team whose knowledge base the RAG tool can search for this chat.
+    // Locked to the conversation's team once one exists on the server;
+    // editable only when starting a new conversation.
+    currentTeamId: string | null;
     truncationNotice: TruncationNotice | null;
     conversationTitle: string | null;
     conversationModel: string | null;
@@ -92,6 +103,7 @@ type LoadedConversation = {
     id: number;
     title: string | null;
     model: string | null;
+    team_id: string | null;
     messages: LoadedMessage[];
     usage?: ConversationUsage;
 };
@@ -125,6 +137,7 @@ const state = reactive<ChatState>({
     error: null,
     conversationId: null,
     currentModel: loadSavedModel(),
+    currentTeamId: props.defaultTeamId,
     truncationNotice: null,
     conversationTitle: null,
     conversationModel: null,
@@ -403,6 +416,9 @@ async function streamAssistantReply(userMessage: string, assistantId: string) {
                 message: userMessage,
                 conversation_id: state.conversationId,
                 model: state.currentModel,
+                // Only send team_id for the first turn; the server persists
+                // it on the conversation and ignores re-submissions.
+                team_id: state.conversationId === null ? state.currentTeamId : undefined,
             },
         },
         assistantId,
@@ -592,6 +608,10 @@ async function selectConversation(id: number) {
         state.conversationTitle = data.title;
         state.conversationModel = data.model;
         state.conversationUsage = data.usage ?? { prompt: 0, completion: 0, total: 0 };
+        // Lock the team selector to whatever the conversation was
+        // created with — switching teams mid-thread would change which
+        // knowledge base the AI can see, which is confusing.
+        state.currentTeamId = data.team_id ?? null;
         scrollToBottom();
     } catch {
         state.error = t('chat.connection_error');
@@ -661,6 +681,7 @@ function newChat() {
     state.conversationTitle = null;
     state.conversationModel = null;
     state.conversationUsage = null;
+    state.currentTeamId = props.defaultTeamId;
     drawerOpen.value = false;
     nextTick(() => {
         const el = (inputRef.value as unknown as { $el?: HTMLElement } | null)?.$el as HTMLInputElement | undefined;
@@ -806,6 +827,18 @@ onBeforeUnmount(() => {
 
                 <form class="flex flex-wrap items-center gap-2" @submit.prevent="send">
                     <ModelSelector v-model="state.currentModel" :models="props.availableModels" :disabled="state.streaming" />
+                    <select
+                        v-if="props.availableTeams.length > 0"
+                        v-model="state.currentTeamId"
+                        :disabled="state.streaming || state.conversationId !== null"
+                        :title="state.conversationId !== null ? t('chat.team_locked_hint') : t('chat.team_scope_hint')"
+                        class="h-9 rounded-md border border-input bg-background px-2 text-xs"
+                    >
+                        <option :value="null">{{ t('chat.no_team_scope') }}</option>
+                        <option v-for="team in props.availableTeams" :key="team.id" :value="team.id">
+                            {{ team.name }}
+                        </option>
+                    </select>
                     <Input
                         ref="inputRef"
                         v-model="state.input"

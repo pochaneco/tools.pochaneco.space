@@ -175,7 +175,10 @@
         "token_usage_prompt": "prompt",
         "token_usage_completion": "completion",
         "token_usage_total": "total",
-        "tokens_unit": "tokens"
+        "tokens_unit": "tokens",
+        "no_team_scope": "チームナレッジなし",
+        "team_scope_hint": "AIが参照するチームのナレッジを選択",
+        "team_locked_hint": "この会話のチームは変更できません"
     },
     "teams": {
         "title": "チーム",
@@ -249,6 +252,40 @@
             "delete": "削除",
             "manageSettings": "設定管理"
         }
+    },
+    "knowledge": {
+        "title": "チームナレッジ",
+        "create": "新規作成",
+        "edit": "編集",
+        "save": "保存",
+        "delete": "削除",
+        "delete_confirm": "このナレッジを削除してよろしいですか？",
+        "publish": "公開",
+        "unpublish": "非公開に戻す",
+        "archive": "アーカイブ",
+        "author": "作成者",
+        "updated_at": "更新",
+        "published_at": "公開日",
+        "indexed_at": "インデックス",
+        "field_title": "タイトル",
+        "field_body": "本文 (Markdown)",
+        "field_status": "ステータス",
+        "body_placeholder": "# 見出しから書き始めてください",
+        "preview": "プレビュー",
+        "preview_empty": "本文を入力するとプレビューが表示されます",
+        "status_hint": "公開にするとAIが検索できるインデックスが作成されます",
+        "search_placeholder": "タイトルで検索",
+        "all_statuses": "すべてのステータス",
+        "apply_filters": "絞り込み",
+        "empty": "まだナレッジがありません",
+        "empty_hint": "新規作成ボタンから最初のエントリを追加しましょう",
+        "back_to_list": "一覧に戻る",
+        "created_successfully": "ナレッジを作成しました",
+        "updated_successfully": "ナレッジを更新しました",
+        "deleted_successfully": "ナレッジを削除しました",
+        "published_successfully": "公開しました",
+        "unpublished_successfully": "下書きに戻しました",
+        "archived_successfully": "アーカイブしました"
     },
     "common": {
         "save": "保存",

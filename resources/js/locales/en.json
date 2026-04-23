@@ -175,7 +175,10 @@
         "token_usage_prompt": "prompt",
         "token_usage_completion": "completion",
         "token_usage_total": "total",
-        "tokens_unit": "tokens"
+        "tokens_unit": "tokens",
+        "no_team_scope": "No team knowledge",
+        "team_scope_hint": "Team whose knowledge the AI can search",
+        "team_locked_hint": "The team for this conversation cannot be changed"
     },
     "teams": {
         "title": "Teams",
@@ -249,6 +252,40 @@
             "delete": "Delete",
             "manageSettings": "Manage Settings"
         }
+    },
+    "knowledge": {
+        "title": "Team Knowledge",
+        "create": "New",
+        "edit": "Edit",
+        "save": "Save",
+        "delete": "Delete",
+        "delete_confirm": "Are you sure you want to delete this knowledge entry?",
+        "publish": "Publish",
+        "unpublish": "Unpublish",
+        "archive": "Archive",
+        "author": "Author",
+        "updated_at": "Updated",
+        "published_at": "Published",
+        "indexed_at": "Indexed",
+        "field_title": "Title",
+        "field_body": "Body (Markdown)",
+        "field_status": "Status",
+        "body_placeholder": "Start with a # heading...",
+        "preview": "Preview",
+        "preview_empty": "Preview appears once you start typing",
+        "status_hint": "Published entries are indexed for AI search",
+        "search_placeholder": "Search by title",
+        "all_statuses": "All statuses",
+        "apply_filters": "Filter",
+        "empty": "No knowledge yet",
+        "empty_hint": "Create your first entry to seed the team knowledge base",
+        "back_to_list": "Back to list",
+        "created_successfully": "Knowledge created",
+        "updated_successfully": "Knowledge updated",
+        "deleted_successfully": "Knowledge deleted",
+        "published_successfully": "Published",
+        "unpublished_successfully": "Moved back to draft",
+        "archived_successfully": "Archived"
     },
     "common": {
         "save": "Save",
